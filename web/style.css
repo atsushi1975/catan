@@ -1,0 +1,57 @@
+/* style.css */
+body { font-family: sans-serif; margin: 0; background: #1a1a1a; color: #eee; }
+#layout { display: flex; height: 100vh; }
+#board-wrap { flex: 1; min-width: 0; position: relative; }
+#board { width: 100%; height: 100%; display: block; }
+#sidebar { width: 320px; padding: 12px; background: #1e1e1e; overflow-y: auto; box-sizing: border-box; }
+.m-only { display: none; }
+h2 { margin: 8px 0; font-size: 16px; }
+.btn { display: inline-block; margin: 4px 2px; padding: 6px 10px; background: #444; color: #eee; border: none; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 14px; }
+.btn:hover { background: #666; }
+.btn.active { background: #2a7; }
+.btn:disabled { background: #2a2a2a; color: #666; cursor: not-allowed; }
+.panel { background: #2c2c34; border: 1px solid #7a7a8a; border-radius: 6px; padding: 8px; margin: 8px 0; }
+.panel h2 { margin-top: 0; }
+.panel select { background: #1a1a1a; color: #eee; border: 1px solid #555; border-radius: 4px; }
+.discard-row input { background: #1a1a1a; color: #eee; border: 1px solid #555; border-radius: 4px; }
+#trade-panel select { background: #1a1a1a; color: #eee; border: 1px solid #555; border-radius: 4px; }
+.resource { display: flex; justify-content: space-between; padding: 2px 0; }
+.player { padding: 6px; margin: 4px 0; border-radius: 4px; background: #333; }
+.player.current { background: #4a4; }
+.player.me { outline: 2px solid #4caf50; }
+#status { padding: 8px; background: #333; border-radius: 4px; margin-bottom: 8px; }
+.valid { outline: 3px solid #ff0; }
+
+/* ---------------------------------------------------------------------------
+   Phones / narrow screens
+   The board keeps the upper part of the screen and the action panel lives in a
+   bottom sheet. It starts closed (board as large as possible) and is opened
+   with the toggle - or automatically when the player must act.
+   --------------------------------------------------------------------------- */
+@media (max-width: 860px) {
+  body { overflow: hidden; }
+  #layout { flex-direction: column; height: 100dvh; height: 100vh; }
+  #board-wrap { flex: 1 1 auto; min-height: 0; }
+  /* the sidebar is a bottom sheet: the bar is always visible, the body opens */
+  #sidebar {
+    flex: none; width: 100%; max-height: 60vh; overflow-y: auto;
+    padding: 0; background: #1e1e1e;
+    border-top: 1px solid #444; box-sizing: border-box;
+    -webkit-overflow-scrolling: touch;
+  }
+  #m-bar { display: flex; align-items: center; gap: 8px;
+    padding: 6px 10px; background: #202020; border-bottom: 1px solid #444; }
+  #m-bar .btn { margin: 0; padding: 10px 12px; }
+  #m-bar-status { font-size: 12px; color: #bbb; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  #sidebar-body { display: none; padding: 8px 10px calc(10px + env(safe-area-inset-bottom, 0px)); }
+  body.bar-open #sidebar-body { display: block; }
+  .m-only { display: block; }
+  .m-note { display: block; font-size: 12px; color: #8cf; margin: 6px 0; }
+  .btn { padding: 10px 12px; }                 /* comfortable tap targets */
+  .panel { padding: 10px; }
+  /* long forms are collapsed: the essentials stay one tap away */
+  body:not(.show-all) .m-fold { display: none; }
+  #toggle-all { display: inline-block; margin: 4px 2px; padding: 6px 10px;
+    background: #333; color: #bbb; border: 1px solid #555; border-radius: 4px;
+    font-size: 12px; font-family: inherit; cursor: pointer; }
+}

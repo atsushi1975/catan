@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>カタン（監視画面）</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="layout">
+  <div id="board-wrap"><canvas id="board"></canvas></div>
+  <div id="sidebar"></div>
+</div>
+<button id="btn-init" style="display:none;position:fixed;right:12px;bottom:12px;z-index:30;
+  padding:8px 12px;border-radius:8px;border:1px solid #8d6e63;background:#263238;color:#ffd54f;
+  cursor:pointer;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,.5);">初期化（ロビーに戻す）</button>
+<script src="game.js"></script>
+<script>
+  // 監視画面: 全情報を表示（トークン無し・閲覧のみ）。
+  // 操作はプレイヤー画面（/）から行います。
+  //
+  // ?debug=1 で操作を有効化できますが、それはサーバーが許可したときだけです。
+  // サーバーは /env で「ローカル（loopback）か」を返し、ネットワーク越し
+  // （Tailscale 等）のアクセスでは debug_allowed=false になるため、外部からは
+  // ?debug=1 を付けても操作は有効になりません。
+  (async function () {
+    const params = new URLSearchParams(location.search);
+    const wantsDebug = params.get('debug') === '1';
+    let allowed = false;
+    try {
+      const env = await fetch('/env').then(r => r.json());
+      allowed = !!env.debug_allowed;
+    } catch (e) { allowed = false; }
+    if (wantsDebug && !allowed) {
+      console.warn('この接続元では ?debug=1 は使えません（閲覧のみ）。');
+    }
+    CatanGame.boot({ mode: 'monitor', readonly: !(wantsDebug && allowed) });
+  })();
+</script>
+</body>
+</html>

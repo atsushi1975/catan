@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>カタン（プレイヤー）</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  #lobby { max-width: 560px; margin: 24px auto; padding: 16px; color: #eee; }
+  #lobby h1 { font-size: 20px; margin: 0 0 12px; }
+  #lobby .row { display: flex; align-items: center; gap: 8px; padding: 6px 8px;
+    border: 1px solid #333; border-radius: 6px; margin: 4px 0; background: #202020; }
+  #lobby .row.me { border-color: #4caf50; }
+  #lobby .row .seat { color: #888; width: 2.5em; }
+  #lobby .row .name { flex: 1; }
+  #lobby .row .roll { font-variant-numeric: tabular-nums; color: #ffd54f; }
+  #lobby input[type=text] { padding: 6px; border-radius: 6px; border: 1px solid #555;
+    background: #1a1a1a; color: #eee; }
+  #lobby .muted { color: #999; font-size: 12px; }
+  #lobby .order { margin-top: 10px; font-size: 13px; }
+  #lobby .slot { min-width: 68px; padding: 6px 4px; font-size: 12px; line-height: 1.5;
+    border: 1px solid #555; border-radius: 6px; background: #202020; color: #eee;
+    cursor: pointer; text-align: center; font-family: inherit; }
+  #lobby .slot.taken { border-color: #4caf50; }
+  #lobby .slot.mine { background: #1b3a1b; box-shadow: 0 0 0 1px #4caf50; }
+  #lobby .slot:not([disabled]):hover { border-color: #ffd54f; }
+  #lobby .slot[disabled] { opacity: .75; cursor: default; }
+  /* Lobby board preview: the map is drawn above the lobby panel so the turn
+     order can be chosen while looking at the board that will be played. */
+  body.preview { display: flex; flex-direction: column; min-height: 100vh; }
+  body.preview #layout { order: 1; display: flex; flex-direction: column;
+    height: auto; width: 100%; }
+  body.preview #sidebar { display: none; }
+  body.preview #board-wrap { flex: none; width: min(100%, calc(58vh * 1.06));
+    aspect-ratio: 10.6 / 10; margin: 0 auto; }
+  body.preview #lobby { order: 2; max-width: 640px; margin: 8px auto 24px; }
+  #game { display: none; }
+  #link-monitor { position: fixed; right: 8px; bottom: 8px; font-size: 11px; color: #78909c; z-index: 10; }
+</style>
+</head>
+<body>
+<div id="lobby">
+  <h1>カタン ロビー</h1>
+  <div id="lobby-body">読み込み中...</div>
+</div>
+
+<div id="layout" style="display:none;">
+  <div id="board-wrap"><canvas id="board"></canvas></div>
+  <div id="sidebar"></div>
+</div>
+
+<a id="link-monitor" href="/monitor" target="_blank">監視画面</a>
+
+<script src="game.js"></script>
+<script>
+(function () {
+  const KEY = 'catan_token';
+  let token = sessionStorage.getItem(KEY) || null;
+  let booted = false;
+
+  function q(path) {
+    return token ? path + (path.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token) : path;
+  }
+  async function room() {
+    return fetch(q('/room')).then(r => r.json());
+  }
+  async function act(action, extra) {
+    const body = Object.assign({action}, extra || {});
+    if (token) body.token = token;
+    return fetch('/action', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(body)}).then(r => r.json());
+  }
+
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+  // Browser tab title: カタン（プレイヤー：<名前>） once the player has joined.
+  function setTitle(name) {
+    document.title = name ? ('カタン（プレイヤー：' + name + '）') : 'カタン（プレイヤー）';
+  }
+
+  let lastKey = null;
+
+  // Show the map being drafted on (server sends it while the room is in the
+  // lobby). The board is read-only in the lobby: no buildings, no clicks.
+  function showPreview(board) {
+    const layout = document.getElementById('layout');
+    if (board) {
+      document.body.classList.add('preview');
+      layout.style.display = 'flex';
+      CatanGame.previewBoard(board);
+    } else {
+      document.body.classList.remove('preview');
+      layout.style.display = 'none';
+      CatanGame.previewBoard(null);
+    }
+  }
+
+  async function renderLobby() {
+    const r = await room();
+    if (r.phase === 'playing') { showGame(r); return; }
+
+    const body = document.getElementById('lobby-body');
+    const key = JSON.stringify(r);
+    const mySeat = (r.you_seat !== null && r.you_seat !== undefined && token) ? r.seats[r.you_seat] : null;
+    // Update the tab title on EVERY poll, even when the DOM below is kept
+    // unchanged - otherwise a player who joins can stay at the default title.
+    if (mySeat) setTitle(mySeat.name);
+    showPreview(r.board);
+    // Re-render only when the lobby actually changed; otherwise leave the DOM
+    // (and any text the player is typing) untouched.
+    if (body.dataset.built === '1' && key === lastKey) return;
+
+    // preserve the name being typed across a re-render
+    const oldInput = document.getElementById('name-input');
+    const prevName = oldInput ? oldInput.value : '';
+    const wasFocused = oldInput && document.activeElement === oldInput;
+
+    let html = '';
+
+    html += `<div class="muted">参加者 ${r.seats.length} / 4（2人以上で開始できます）</div>`;
+
+    // seat list
+    for (const s of r.seats) {
+      const me = mySeat && s.seat === mySeat.seat;
+      html += `<div class="row${me ? ' me' : ''}"><span class="seat">${s.seat + 1}</span>
+        <span class="name">${esc(s.name)}${me ? ' <span class="muted">(あなた)</span>' : ''}</span>
+        <span class="roll">${s.roll ? s.roll[0] + '+' + s.roll[1] + ' = ' + s.total : '未振り'}</span></div>`;
+    }
+
+    // pick order (by dice) - and, once everyone rolled, the turn-slot draft
+    const rolled = r.seats.filter(s => s.roll).sort((a, b) => b.total - a.total);
+    if (rolled.length) {
+      html += `<div class="order">${r.draft ? '選択順（ダイスの大きい順）' : '順番（暫定・ダイスの大きい順）'}: ` +
+        rolled.map(s => esc(s.name) + '(' + s.total + ')').join(' → ') + `</div>`;
+    }
+
+    if (r.draft) {
+      const d = r.draft;
+      html += `<div style="margin-top:8px;font-size:13px;font-weight:bold;">
+        盤面を見ながら、第1〜${d.queue.length}ターン目の順番を選んでください（上の選択順に選びます）</div>`;
+      // seat -> chosen number
+      const taken = {};
+      for (const k of Object.keys(d.slots)) taken[d.slots[k]] = Number(k);
+      html += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">';
+      for (let n = 1; n <= d.queue.length; n++) {
+        const ownerSeat = (taken[n] !== undefined) ? taken[n] : null;
+        const owner = ownerSeat !== null ? (d.queue.find(x => x.seat === ownerSeat) || {}).name : null;
+        const mine = ownerSeat !== null && mySeat && ownerSeat === mySeat.seat;
+        const myPickTurn = mySeat && d.current_picker === mySeat.seat;
+        const alreadyPicked = mySeat && d.slots[String(mySeat.seat)] !== undefined;
+        // the current picker may take any free number; a player who already
+        // picked may still switch to another free number before starting
+        const canClick = ownerSeat === null && !!mySeat && (myPickTurn || alreadyPicked);
+        html += `<button class="slot${owner ? ' taken' : ''}${mine ? ' mine' : ''}"
+          data-slot="${n}" ${canClick ? '' : 'disabled'}>
+          <b>${n}番目</b><br><span>${owner ? esc(owner) : '空き'}</span></button>`;
+      }
+      html += '</div>';
+      if (mySeat) {
+        if (d.current_picker === mySeat.seat)
+          html += `<div class="order" style="color:#ffd54f;">▶ あなたの番です。好きな番号を選んでください</div>`;
+        else if (!d.ready)
+          html += `<div class="order">待機中…（${esc((d.queue.find(x => x.seat === d.current_picker) || {}).name || '')} の番）</div>`;
+        else
+          html += `<div class="order">全員が番号を選択しました。ゲーム開始できます。</div>`;
+      }
+    }
+
+    html += '<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">';
+    if (!mySeat) {
+      html += `<input type="text" id="name-input" placeholder="名前" maxlength="24">
+        <button class="btn" id="btn-join">入室</button>`;
+    } else {
+      html += `<button class="btn" id="btn-roll-room" ${mySeat.roll ? 'disabled' : ''}>サイコロを振る</button>
+        <button class="btn" id="btn-start" ${r.can_start ? '' : 'disabled'}>ゲーム開始</button>
+        <button class="btn" id="btn-leave">退出する</button>`;
+    }
+    html += '</div>';
+    body.innerHTML = html;
+    body.dataset.built = '1';
+    lastKey = key;
+
+    if (!mySeat) {
+      const inp = document.getElementById('name-input');
+      if (inp) { inp.value = prevName; if (wasFocused) inp.focus(); }
+      document.getElementById('btn-join').onclick = async () => {
+        const name = (document.getElementById('name-input').value || '').trim() || null;
+        const res = await act('join', { name });
+        if (res.ok) { token = res.token; sessionStorage.setItem(KEY, token); lastKey = null; renderLobby(); }
+        else alert(res.error || '入室できませんでした');
+      };
+    } else {
+      document.getElementById('btn-roll-room').onclick = async () => {
+        const res = await act('room_roll');
+        if (!res.ok) alert(res.error || '振れませんでした');
+        lastKey = null;
+        renderLobby();
+      };
+      document.getElementById('btn-start').onclick = async () => {
+        const res = await act('room_start');
+        if (!res.ok) { alert(res.error || '開始できませんでした'); lastKey = null; renderLobby(); return; }
+        renderLobby();
+      };
+      document.getElementById('btn-leave').onclick = async () => {
+        if (!confirm('この席から退出しますか？（もう一度入るには入室し直してください）')) return;
+        const res = await act('leave');
+        if (!res.ok) { alert(res.error || '退出できませんでした'); return; }
+        // Leave the seat on the server first, then forget the token locally so
+        // the next load shows the (empty) name field.
+        sessionStorage.removeItem(KEY); token = null; location.reload();
+      };
+    }
+    // turn-slot draft
+    if (mySeat && r.draft) {
+      body.querySelectorAll('button[data-slot]').forEach(b => {
+        b.onclick = async () => {
+          const res = await act('room_pick', { slot: parseInt(b.dataset.slot, 10) });
+          if (!res.ok) alert(res.error || '選べませんでした');
+          lastKey = null;
+          renderLobby();
+        };
+      });
+    }
+  }
+
+  function showGame(r) {
+    // Keep the tab title personalised even when the page reloads straight into
+    // a running game (the lobby render is skipped in that case).
+    const seat = (r && r.you_seat !== null && r.you_seat !== undefined && r.seats) ? r.seats[r.you_seat] : null;
+    if (seat) setTitle(seat.name);
+    document.body.classList.remove('preview');
+    document.getElementById('lobby').style.display = 'none';
+    document.getElementById('layout').style.display = 'flex';
+    if (!booted) {
+      booted = true;
+      CatanGame.boot({ mode: 'client', token });
+    }
+  }
+
+  async function tick() {
+    if (booted) return;   // game already running; game.js polls /state
+    try { await renderLobby(); } catch (e) { /* ignore */ }
+  }
+  tick();
+  setInterval(tick, 1500);
+})();
+</script>
+</body>
+</html>
