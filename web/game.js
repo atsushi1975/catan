@@ -32,6 +32,156 @@ const TERRAIN_LABEL = {
   mountains:'鉄', desert:'砂漠'
 };
 
+// ---------------------------------------------------------------------------
+// Terrain textures
+//   Procedurally drawn, cached offscreen. Every hex is painted once into a
+//   square tile and then stamped (clipped to the hexagon) at draw time, so the
+//   per-frame cost stays a single drawImage.
+//
+//   The look is deliberately soft / hand-painted: a gentle vertical gradient
+//   for the base, a low-opacity scatter of detail marks, and no hard edges.
+//   Details are seeded per terrain so they are identical every render (no
+//   flicker) but differ between the six terrains.
+// ---------------------------------------------------------------------------
+const TEXTURE_CACHE = new Map();
+
+// tiny deterministic PRNG so a texture always looks the same
+function _rng(seed) {
+  let s = seed >>> 0;
+  return function () {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    return s / 4294967296;
+  };
+}
+
+function _terrainStyle(t) {
+  // base colour + gradient partner + detail colour per terrain
+  switch (t) {
+    case 'forest':    return { base:'#2f8f52', dark:'#1f6b3c', mark:'#8fd694', mark2:'#0e4f2b' };
+    case 'hills':     return { base:'#c08a55', dark:'#a06e3f', mark:'#e0b483', mark2:'#8a5a30' };
+    case 'pasture':   return { base:'#9ccc4e', dark:'#7cae38', mark:'#c7e88a', mark2:'#6f9c30' };
+    case 'fields':    return { base:'#ecc93f', dark:'#d3a82b', mark:'#f7e08a', mark2:'#b98f1e' };
+    case 'mountains': return { base:'#9a9a9a', dark:'#7d7d7d', mark:'#cfcfcf', mark2:'#636363' };
+    case 'desert':    return { base:'#e6cf9a', dark:'#d5b877', mark:'#f4e6bd', mark2:'#c2a45f' };
+    default:          return { base:'#777', dark:'#555', mark:'#999', mark2:'#444' };
+  }
+}
+
+function _drawTerrainDetails(c, t, size, rnd) {
+  const cx = size / 2, cy = size / 2;
+  const R = size * 0.44;               // stay inside the hexagon
+  c.save();
+  c.beginPath(); c.arc(cx, cy, R, 0, Math.PI * 2); c.clip();
+
+  if (t === 'forest') {
+    // little trees: a soft blob + a lighter highlight
+    for (let i = 0; i < 16; i++) {
+      const x = cx + (rnd() - 0.5) * R * 1.7;
+      const y = cy + (rnd() - 0.5) * R * 1.7;
+      const r = R * (0.10 + rnd() * 0.07);
+      c.globalAlpha = 0.55;
+      c.fillStyle = '#12562f';
+      c.beginPath(); c.moveTo(x, y - r); c.lineTo(x - r, y + r); c.lineTo(x + r, y + r); c.closePath(); c.fill();
+      c.globalAlpha = 0.4;
+      c.fillStyle = '#79c98a';
+      c.beginPath(); c.moveTo(x, y - r * 0.5); c.lineTo(x - r * 0.6, y + r * 0.6); c.lineTo(x + r * 0.6, y + r * 0.6); c.closePath(); c.fill();
+    }
+  } else if (t === 'pasture') {
+    // grass tufts + a few sheep dots
+    c.strokeStyle = '#5f8f28';
+    for (let i = 0; i < 26; i++) {
+      const x = cx + (rnd() - 0.5) * R * 1.8;
+      const y = cy + (rnd() - 0.5) * R * 1.8;
+      c.globalAlpha = 0.35 + rnd() * 0.25;
+      c.lineWidth = Math.max(1, size * 0.012);
+      c.beginPath(); c.moveTo(x, y); c.lineTo(x + (rnd() - 0.5) * 4, y - R * 0.10); c.stroke();
+    }
+    c.globalAlpha = 0.5; c.fillStyle = '#f4f4ee';
+    for (let i = 0; i < 5; i++) {
+      const x = cx + (rnd() - 0.5) * R * 1.5, y = cy + (rnd() - 0.5) * R * 1.5;
+      c.beginPath(); c.ellipse(x, y, R * 0.10, R * 0.07, 0, 0, Math.PI * 2); c.fill();
+    }
+  } else if (t === 'fields') {
+    // rows of wheat: short golden strokes
+    c.strokeStyle = '#8a6a12';
+    for (let row = -3; row <= 3; row++) {
+      const y0 = cy + row * R * 0.26;
+      for (let i = 0; i < 6; i++) {
+        const x = cx + (i - 2.5) * R * 0.28 + (rnd() - 0.5) * 3;
+        c.globalAlpha = 0.4 + rnd() * 0.3;
+        c.lineWidth = Math.max(1, size * 0.016);
+        c.beginPath(); c.moveTo(x, y0 + R * 0.12); c.lineTo(x, y0 - R * 0.12); c.stroke();
+      }
+    }
+  } else if (t === 'hills') {
+    // rolling mounds
+    for (let i = 0; i < 6; i++) {
+      const x = cx + (rnd() - 0.5) * R * 1.4;
+      const y = cy + (rnd() - 0.5) * R * 1.4;
+      const r = R * (0.18 + rnd() * 0.14);
+      c.globalAlpha = 0.5;
+      c.fillStyle = '#8a5a30';
+      c.beginPath(); c.ellipse(x, y + r * 0.3, r, r * 0.7, 0, 0, Math.PI * 2); c.fill();
+      c.globalAlpha = 0.55;
+      c.fillStyle = '#e0b483';
+      c.beginPath(); c.ellipse(x, y, r * 0.9, r * 0.6, 0, 0, Math.PI * 2); c.fill();
+    }
+  } else if (t === 'mountains') {
+    // rocky peaks with snow caps
+    for (let i = 0; i < 4; i++) {
+      const x = cx + (rnd() - 0.5) * R * 1.1;
+      const y = cy + (rnd() - 0.5) * R * 0.9 + R * 0.15;
+      const h = R * (0.45 + rnd() * 0.25), w = h * 0.9;
+      c.globalAlpha = 0.7; c.fillStyle = '#6f6f6f';
+      c.beginPath(); c.moveTo(x, y - h); c.lineTo(x - w, y + h * 0.5); c.lineTo(x + w, y + h * 0.5); c.closePath(); c.fill();
+      c.globalAlpha = 0.85; c.fillStyle = '#efefef';
+      c.beginPath(); c.moveTo(x, y - h); c.lineTo(x - w * 0.34, y - h * 0.42); c.lineTo(x + w * 0.34, y - h * 0.42); c.closePath(); c.fill();
+    }
+  } else if (t === 'desert') {
+    // dunes + fine sand speckle
+    for (let i = 0; i < 5; i++) {
+      const x = cx + (rnd() - 0.5) * R * 1.4, y = cy + (rnd() - 0.5) * R * 1.4;
+      c.globalAlpha = 0.4; c.strokeStyle = '#b9955a';
+      c.lineWidth = Math.max(1, size * 0.014);
+      c.beginPath(); c.arc(x, y, R * (0.2 + rnd() * 0.15), Math.PI * 1.05, Math.PI * 1.95); c.stroke();
+    }
+    c.fillStyle = '#b9955a';
+    for (let i = 0; i < 60; i++) {
+      c.globalAlpha = 0.15 + rnd() * 0.25;
+      const x = cx + (rnd() - 0.5) * R * 1.8, y = cy + (rnd() - 0.5) * R * 1.8;
+      c.fillRect(x, y, size * 0.02, size * 0.02);
+    }
+  }
+  c.restore();
+}
+
+function terrainTexture(terrain, size) {
+  const key = terrain + '@' + size;
+  const hit = TEXTURE_CACHE.get(key);
+  if (hit) return hit;
+  const off = document.createElement('canvas');
+  off.width = off.height = size;
+  const c = off.getContext('2d');
+  const st = _terrainStyle(terrain);
+  // soft vertical gradient base
+  const g = c.createLinearGradient(0, 0, 0, size);
+  g.addColorStop(0, st.base);
+  g.addColorStop(1, st.dark);
+  c.fillStyle = g;
+  c.fillRect(0, 0, size, size);
+  // a soft radial light so the tile feels hand-painted, not flat
+  const rg = c.createRadialGradient(size * 0.5, size * 0.38, size * 0.05,
+                                    size * 0.5, size * 0.5, size * 0.62);
+  rg.addColorStop(0, 'rgba(255,255,255,0.16)');
+  rg.addColorStop(1, 'rgba(0,0,0,0.10)');
+  c.fillStyle = rg; c.fillRect(0, 0, size, size);
+  // details (deterministic seed per terrain)
+  const seed = { forest: 11, hills: 22, pasture: 33, fields: 44, mountains: 55, desert: 66 }[terrain] || 7;
+  _drawTerrainDetails(c, terrain, size, _rng(seed));
+  TEXTURE_CACHE.set(key, off);
+  return off;
+}
+
 let canvas, ctx;
 let state = null;
 let mode = 'none';
@@ -180,18 +330,28 @@ function render() {
     ctx.moveTo(corners[0].x, corners[0].y);
     for (let i=1;i<6;i++) ctx.lineTo(corners[i].x, corners[i].y);
     ctx.closePath();
-    ctx.fillStyle = TERRAIN_COLOR[h.terrain] || '#555';
-    ctx.fill();
+    ctx.save();
+    ctx.clip();                         // paint the texture only inside the hexagon
+    const size = Math.round(2 * scale);
+    // guard against a zero-size tile on the very first frame
+    if (size > 2) {
+      ctx.drawImage(terrainTexture(h.terrain, size), cc.x - scale, cc.y - scale, size, size);
+    } else {
+      ctx.fillStyle = TERRAIN_COLOR[h.terrain] || '#555';
+      ctx.fill();
+    }
+    ctx.restore();
     ctx.strokeStyle = 'rgba(255,255,255,0.6)';
     ctx.lineWidth = 2;
     ctx.stroke();
     if (h.number) {
-      ctx.fillStyle = TERRAIN_COLOR[h.terrain] || '#ccc';
+      // parchment disc so the number stays readable over the texture
+      ctx.fillStyle = '#f3ead1';
       ctx.beginPath(); ctx.arc(cc.x, cc.y - 2, 19, 0, Math.PI*2); ctx.fill();
-      ctx.strokeStyle = (h.number===6||h.number===8) ? '#c00' : '#222';
+      ctx.strokeStyle = (h.number===6||h.number===8) ? '#c00' : '#5b4a2a';
       ctx.lineWidth = 3;
       ctx.beginPath(); ctx.arc(cc.x, cc.y - 2, 19, 0, Math.PI*2); ctx.stroke();
-      ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
       ctx.beginPath(); ctx.arc(cc.x, cc.y - 2, 13, 0, Math.PI*2); ctx.fill();
       ctx.fillStyle = (h.number===6||h.number===8) ? '#c00' : '#000';
       ctx.font = 'bold 16px sans-serif';
@@ -1117,5 +1277,6 @@ window.CatanGame = {
   get pendingKnight() { return pendingKnight; },
   set pendingKnight(v) { pendingKnight = v; },
   hexCenter, render, updatePanels, sendRobberMove, post,
+  terrainTexture,
 };
 })();
