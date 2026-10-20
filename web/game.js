@@ -345,14 +345,14 @@ function drawDie(cx, cy, side, value) {
   }
 }
 
-// Draw the two dice in the bottom-right of the board (inside the sea square).
+// Draw the two dice in the top-right of the board (inside the sea square).
 // Shown only once a game is in play AND dice have been thrown: the lobby (turn
 // order draft), the initial-placement phase and a fresh turn before its roll
 // all show no dice.
 //
-// Placement: the dice sit in the bottom-right corner of the sea, but are kept
+// Placement: the dice sit in the top-right corner of the sea, but are kept
 // clear of the port labels (ports carry information, so the dice never cover
-// them). Candidate spots are tried from the corner inwards/upwards and the
+// them). Candidate spots are tried from the corner inwards/downwards and the
 // first one that does not touch a port label wins.
 function _portLabelBoxes(b) {
   const boxes = [];
@@ -388,12 +388,15 @@ function dicePlacement() {
   const groupH = side;
   const pad = side * 0.4;
   const labels = _portLabelBoxes(state.board || {});
+  // Top-right corner of the sea square, then nudge left and down away from the
+  // port labels. The top of the board is the safest place: nothing else lives
+  // there and the dice can never be clipped by the bottom edge.
   const right = cx + half - pad - groupW / 2;
-  const bottom = cy + half - pad - groupH / 2;
+  const top = pad + groupH / 2;
   const cands = [];
-  for (const dy of [0, -side * 1.3, -side * 2.6]) {
+  for (const dy of [0, side * 1.3, side * 2.6]) {
     for (const dx of [0, -side * 1.3, -side * 2.6, -side * 3.9]) {
-      cands.push({ x: right + dx, y: bottom + dy });
+      cands.push({ x: right + dx, y: top + dy });
     }
   }
   let spot = cands[0];
@@ -1173,10 +1176,16 @@ function barOpened() {
   return document.body.classList.contains('bar-open');
 }
 
-function setBar(open) {
+function setBar(open, manual) {
   document.body.classList.toggle('bar-open', !!open);
   const b = document.getElementById('btn-togglebar');
   if (b) b.textContent = open ? '▼ 盤面を広く見る' : '▲ 操作パネルを開く';
+  if (manual) {
+    // The player tapped the toggle: a manual close sticks for the situation
+    // that is currently on screen, so the next poll does not pop it back open.
+    if (!open && barAutoReason) barSuppressed = barAutoReason;
+    if (open) barSuppressed = null;
+  }
   if (isPhone()) {
     // make sure the board is laid out against the new pane height
     requestAnimationFrame(() => { resize(); updateMobileToggle(); });
@@ -1187,17 +1196,38 @@ function setBar(open) {
 // Open the action sheet when the player has to act (discard / robber / setup).
 // While the player is actively placing something the sheet stays open, so the
 // turn does not flap between "open" and "closed" on every poll.
+//
+// If the player closes the sheet BY HAND we must not immediately re-open it on
+// the next poll (that made the "盤面を広く見る" button feel broken). We remember
+// the reason we auto-opened for; a manual close suppresses that SAME reason
+// until a new one appears (e.g. the next discard / robber / setup step).
 let barHeld = false;
+let barAutoReason = null;     // signature of the must-act situation that opened it
+let barSuppressed = null;     // signature the player dismissed by hand
+
+function _barReason() {
+  if (!state) return null;
+  if (state.phase === 'setup' && isMyTurn()) return 'setup';
+  if (hasPendingDiscards()) return 'discard:' + state.turn_number;
+  if (state.robber_pending && isMyTurn()) return 'robber:' + state.turn_number;
+  return null;
+}
+
 function autoOpenBar() {
   if (!isPhone()) return;
-  if (mobileNeedsAction()) {
+  const reason = _barReason();
+  if (reason) {
     barHeld = true;
-    if (!barOpened()) setBar(true);
+    barAutoReason = reason;
+    // respect a manual close for this same situation
+    if (reason !== barSuppressed && !barOpened()) setBar(true);
     return;
   }
   const stillActing = isMyTurn() && (mode === 'road' || mode === 'settle' || mode === 'city' || mode === 'robber');
   if (barHeld && stillActing) return;      // keep it open during the placement
   barHeld = false;
+  barAutoReason = null;
+  barSuppressed = null;                    // new turn/situation: clear the memory
 }
 
 // Tell the closed bar what is going on, so the player knows why it opened.
@@ -1225,14 +1255,6 @@ function updateMobileToggle() {
 }
 
 // Should the action sheet open on its own? (discard / robber / setup placement)
-function mobileNeedsAction() {
-  if (!isPhone() || !state || !state.players || !isMyTurn()) return false;
-  if (hasPendingDiscards()) return true;
-  if (state.robber_pending || pendingRobberHex !== null) return true;
-  if (state.phase === 'setup') return true;
-  return false;
-}
-
 function updatePanels() {
   if (!state || READONLY) return;
   const myId = (VIEW === 'client' && state.you !== null && state.you !== undefined) ? state.you : null;
@@ -1631,7 +1653,7 @@ function boot(opts) {
   // Mobile: the action sheet starts closed so the board is fully visible.
   const tb = document.getElementById('btn-togglebar');
   if (tb) {
-    tb.onclick = () => setBar(!barOpened());
+    tb.onclick = () => setBar(!barOpened(), true);
     setBar(false);
   }
   const ta = document.getElementById('toggle-all');
@@ -1699,5 +1721,10 @@ window.CatanGame = {
   // test hooks: geometry used to keep the dice clear of the ports
   _debugPortLabelBoxes: () => _portLabelBoxes(state.board || {}),
   _debugDicePlacement: () => dicePlacement(),
+  // test hooks: the mobile action sheet
+  _debugBarOpened: () => barOpened(),
+  _debugSetBar: (open, manual) => setBar(open, manual),
+  _debugAutoOpenBar: () => autoOpenBar(),
+  _debugBarState: () => ({ opened: barOpened(), reason: barAutoReason, suppressed: barSuppressed, held: barHeld }),
 };
 })();
