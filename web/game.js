@@ -289,6 +289,127 @@ function playerColor(id) {
   const colors = ['#e53935','#1e88e5','#ab47bc','#fb8c00'];
   return colors[id] || '#888';
 }
+
+// A darker shade of a player colour, used for the "side" faces of a piece so a
+// flat 2D shape still reads as a small block (like the original wooden pieces).
+function darkenColor(hex, amt) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = Math.max(0, Math.round(((n >> 16) & 255) * (1 - amt)));
+  const g = Math.max(0, Math.round(((n >> 8) & 255) * (1 - amt)));
+  const b = Math.max(0, Math.round((n & 255) * (1 - amt)));
+  return `rgb(${r},${g},${b})`;
+}
+
+// ---------------------------------------------------------------------------
+// Pieces (settlement / city)
+//   Flat 2D silhouettes of the first-edition (1995) wooden blocks:
+//     settlement - a small pentagon (home plate, point up)
+//     city       - a bigger block with a stepped, battlement-like top edge
+//   No shadows, no side faces, no internal detail: just the outline filled with
+//   the player colour and a THIN black contour.
+// ---------------------------------------------------------------------------
+function polyPath(pts) {
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+  ctx.closePath();
+}
+
+// thin black outline, scaled with the board (default zoom: ~1.3px)
+const pieceLineWidth = () => Math.max(0.8, scale * 0.026);
+
+// Stroke the current path with a thin black contour. `miter` keeps the peaks
+// SHARP (a round join would blunt the pentagon's point).
+function pieceStroke() {
+  ctx.strokeStyle = '#111';
+  ctx.lineWidth = pieceLineWidth();
+  ctx.lineJoin = 'miter';
+  ctx.miterLimit = 2;
+  ctx.stroke();
+}
+
+function drawSettlement(px, py, color) {
+  const s = (scale / 50) * 0.7;    // 0.7x: a compact piece on a busy board
+  const w = 11 * s;        // half width
+  const peak = 12 * s;     // how far the point rises above the shoulders
+  const h = 20 * s;        // total height
+  const topY = py - h * 0.5 + peak * 0.5;
+  polyPath([
+    [px, topY - peak],           // apex (point up, like an upside-down home plate)
+    [px + w, topY],
+    [px + w, topY + h - peak],
+    [px - w, topY + h - peak],
+    [px - w, topY],
+  ]);
+  ctx.fillStyle = color; ctx.fill();
+  pieceStroke();
+}
+
+function drawCity(px, py, color) {
+  const s = (scale / 50) * 0.7;   // 0.7x: keep the city compact next to a settlement
+  const w = 18 * s;        // half width of the base rectangle (full width = 2w)
+  const bh = w;            // base rectangle height: 1:2 against the full width
+  const peak = 10 * s;     // the pentagon's point (same feel as a settlement)
+  const notch = 4 * s;     // how much the left half's top edge is lowered
+  const baseY = py + (bh + peak) * 0.5;   // bottom edge
+  const shoulderY = baseY - bh;           // top edge of the RIGHT half (pentagon base)
+  const leftTopY = shoulderY + notch;     // lower top edge of the LEFT half
+  const topY = shoulderY - peak;          // top of the pentagon point
+  const apexX = px + w * 0.5;             // centre of the RIGHT half
+  // A deformed heptagon: the left half is a bar whose top edge sits a little
+  // LOWER than the pentagon's shoulders, so the piece reads as a raised keep.
+  //
+  //                 ___
+  //                /   \
+  //          ______     |
+  //               |     |
+  //               |_____|
+  //
+  polyPath([
+    [apexX, topY],                       // 1 apex of the pentagon
+    [px + w, shoulderY],                 // 2 right shoulder
+    [px + w, baseY],                     // 3 bottom right
+    [px - w, baseY],                     // 4 bottom left
+    [px - w, leftTopY],                  // 5 top-left of the lowered left bar
+    [px, leftTopY],                      // 6 top-right of the lowered left bar
+    [px, shoulderY],                     // 7 pentagon's left base (step up)
+  ]);
+  ctx.fillStyle = color; ctx.fill();
+  pieceStroke();
+}
+
+// ---------------------------------------------------------------------------
+// Roads
+//   A road does not run corner-to-corner along the whole edge: it is a short,
+//   thick, round-ended bar sitting in the middle of the edge, so it reads as a
+//   piece laid on the board and never collides with the settlements/cities at
+//   the two vertices. Like the buildings, it gets a thin BLACK outline: the
+//   bar is stroked twice - first the contour (slightly wider), then the colour.
+//     inset  - how far (as a fraction of the edge) each end is pulled inward
+//     width  - bar thickness in canvas pixels (the colour part)
+// ---------------------------------------------------------------------------
+function drawRoadBar(p0, p1, color, width, inset) {
+  const dx = p1.x - p0.x, dy = p1.y - p0.y;
+  const len = Math.hypot(dx, dy) || 1;
+  const ux = dx / len, uy = dy / len;
+  const cut = len * (inset == null ? 0.22 : inset);   // pull both ends inward
+  const ax = p0.x + ux * cut, ay = p0.y + uy * cut;
+  const bx = p1.x - ux * cut, by = p1.y - uy * cut;
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(ax, ay);
+  ctx.lineTo(bx, by);
+  // 1) black contour (a hair wider so it shows as a rim on both sides)
+  ctx.strokeStyle = '#111';
+  ctx.lineWidth = width + Math.max(1.6, pieceLineWidth() * 2);
+  ctx.stroke();
+  // 2) the road colour on top
+  ctx.strokeStyle = color;
+  ctx.lineWidth = width;
+  ctx.stroke();
+  ctx.restore();
+}
 function portLabel(type) {
   if (type === 'generic') return '3:1';
   return '2:1 ' + resName(type);
@@ -391,9 +512,15 @@ function render() {
   for (const e of b.edges) {
     const p0 = toCanvas({x:e.points[0][0], y:e.points[0][1]});
     const p1 = toCanvas({x:e.points[1][0], y:e.points[1][1]});
-    ctx.strokeStyle = e.road_owner===null ? 'rgba(255,255,255,0.15)' : playerColor(e.road_owner);
-    ctx.lineWidth = e.road_owner===null ? 2 : 5;
-    ctx.beginPath(); ctx.moveTo(p0.x,p0.y); ctx.lineTo(p1.x,p1.y); ctx.stroke();
+    if (e.road_owner === null) {
+      // faint hint of an empty edge (kept very subtle)
+      ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(p0.x,p0.y); ctx.lineTo(p1.x,p1.y); ctx.stroke();
+    } else {
+      // a short, thick, round-ended bar in the middle of the edge
+      drawRoadBar(p0, p1, playerColor(e.road_owner), 8, 0.24);
+    }
   }
   const showRoads = (mode==='road' || state.phase==='setup') && isMyTurn();
   if (showRoads) {
@@ -401,26 +528,15 @@ function render() {
       const e = b.edges[ei];
       const p0 = toCanvas({x:e.points[0][0], y:e.points[0][1]});
       const p1 = toCanvas({x:e.points[1][0], y:e.points[1][1]});
-      ctx.strokeStyle = '#ff0'; ctx.lineWidth = 6;
-      ctx.beginPath(); ctx.moveTo(p0.x,p0.y); ctx.lineTo(p1.x,p1.y); ctx.stroke();
+      // yellow preview bars, same shape as a placed road but slightly thinner
+      drawRoadBar(p0, p1, 'rgba(255,255,0,0.85)', 6, 0.24);
     }
   }
   for (const v of b.vertices) {
     const p = toCanvas({x:v.x, y:v.y});
     if (v.building) {
-      ctx.fillStyle = playerColor(v.owner);
-      ctx.strokeStyle = '#111'; ctx.lineWidth = 3;
-      if (v.building === 'city') {
-        ctx.fillRect(p.x-11, p.y-11, 22, 22);
-        ctx.strokeRect(p.x-11, p.y-11, 22, 22);
-        ctx.fillStyle = 'rgba(255,255,255,0.85)';
-        ctx.fillRect(p.x-4, p.y-4, 8, 8);
-      } else {
-        ctx.beginPath(); ctx.arc(p.x, p.y, 10, 0, Math.PI*2); ctx.fill();
-        ctx.beginPath(); ctx.arc(p.x, p.y, 10, 0, Math.PI*2); ctx.stroke();
-        ctx.fillStyle = 'rgba(255,255,255,0.85)';
-        ctx.beginPath(); ctx.arc(p.x, p.y, 3.5, 0, Math.PI*2); ctx.fill();
-      }
+      if (v.building === 'city') drawCity(p.x, p.y, playerColor(v.owner));
+      else drawSettlement(p.x, p.y, playerColor(v.owner));
     } else if ((mode==='settle' || state.phase==='setup') && (state.valid.settlements||[]).includes(v.i) && isMyTurn()) {
       ctx.fillStyle='rgba(255,255,0,0.5)';
       ctx.beginPath(); ctx.arc(p.x, p.y, 9, 0, Math.PI*2); ctx.fill();
@@ -1278,5 +1394,10 @@ window.CatanGame = {
   set pendingKnight(v) { pendingKnight = v; },
   hexCenter, render, updatePanels, sendRobberMove, post,
   terrainTexture,
+  // test hooks: draw a single piece / road so the shapes can be inspected
+  _debugDrawPiece: (kind, px, py, color) => {
+    if (kind === 'city') drawCity(px, py, color); else drawSettlement(px, py, color);
+  },
+  _debugDrawRoad: (p0, p1, color) => drawRoadBar(p0, p1, color, 8, 0.24),
 };
 })();
