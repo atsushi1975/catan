@@ -41,13 +41,25 @@
   #lobby .rules-note { margin-top: 6px; font-size: 11px; color: #888; }
   /* Lobby board preview: the map is drawn above the lobby panel so the turn
      order can be chosen while looking at the board that will be played. */
-  body.preview { display: flex; flex-direction: column; min-height: 100vh; }
+  body.preview { display: flex; flex-direction: column; min-height: 100vh;
+    /* The lobby is taller than the screen on phones, so the page MUST scroll
+       here - otherwise the lower (lobby) half is unreachable. The game view
+       keeps body overflow:hidden, only the preview scrolls. */
+    overflow-y: auto; -webkit-overflow-scrolling: touch; }
   body.preview #layout { order: 1; display: flex; flex-direction: column;
     height: auto; width: 100%; }
   body.preview #sidebar { display: none; }
   body.preview #board-wrap { flex: none; width: min(100%, calc(58vh * 1.06));
     aspect-ratio: 10.6 / 10; margin: 0 auto; }
-  body.preview #lobby { order: 2; max-width: 640px; margin: 8px auto 24px; }
+  body.preview #lobby { order: 2; max-width: 640px; width: 100%;
+    margin: 8px auto 24px; box-sizing: border-box; }
+  @media (max-width: 860px) {
+    /* style.css hides overflow on phones; in the lobby we want a scrollable
+       page instead (board on top, lobby below). */
+    body.preview { overflow-y: auto; height: auto; }
+    body.preview #layout { height: auto; }
+    body.preview #board-wrap { width: min(100%, 86vw); }
+  }
   #game { display: none; }
   #link-monitor { position: fixed; right: 8px; bottom: 8px; font-size: 11px; color: #78909c; z-index: 10; }
 </style>
