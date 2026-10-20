@@ -27,10 +27,6 @@ const TERRAIN_COLOR = {
   forest:'#2d8a4e', hills:'#c4956a', pasture:'#8bc34a',
   fields:'#f9d71c', mountains:'#9e9e9e', desert:'#e8c98a'
 };
-const TERRAIN_LABEL = {
-  forest:'木', hills:'土', pasture:'羊', fields:'麦',
-  mountains:'鉄', desert:'砂漠'
-};
 
 // ---------------------------------------------------------------------------
 // Terrain textures
@@ -378,6 +374,34 @@ function drawCity(px, py, color) {
   pieceStroke();
 }
 
+// The robber: a small dark figure (head + shoulders + a cloak), like the
+// first-edition wooden piece seen from behind. Drawn as one flat silhouette
+// with the same thin black contour as the buildings.
+function drawRobber(px, py) {
+  const s = (scale / 50) * 0.8 * 1.2 * 1.5;   // 1.2x then 1.5x: make the robber stand out
+  const dark = '#2b2b2b';
+  ctx.save();
+  // cloak / body: a rounded trapezoid
+  ctx.beginPath();
+  ctx.moveTo(px - 8*s, py + 10*s);
+  ctx.quadraticCurveTo(px - 9*s, py - 1*s, px - 3.5*s, py - 3*s);
+  ctx.lineTo(px + 3.5*s, py - 3*s);
+  ctx.quadraticCurveTo(px + 9*s, py - 1*s, px + 8*s, py + 10*s);
+  ctx.closePath();
+  ctx.fillStyle = dark; ctx.fill();
+  ctx.strokeStyle = '#111'; ctx.lineWidth = pieceLineWidth();
+  ctx.lineJoin = 'round'; ctx.stroke();
+  // head
+  ctx.beginPath();
+  ctx.arc(px, py - 7*s, 4.5*s, 0, Math.PI*2);
+  ctx.fillStyle = dark; ctx.fill(); ctx.stroke();
+  // a pale face sliver so the figure reads at small sizes
+  ctx.beginPath();
+  ctx.arc(px + 0.8*s, py - 7.6*s, 2.2*s, 0, Math.PI*2);
+  ctx.fillStyle = 'rgba(230,220,190,0.9)'; ctx.fill();
+  ctx.restore();
+}
+
 // ---------------------------------------------------------------------------
 // Roads
 //   A road does not run corner-to-corner along the whole edge: it is a short,
@@ -479,23 +503,8 @@ function render() {
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText(h.number, cc.x, cc.y - 2);
     }
-    const lbl = TERRAIN_LABEL[h.terrain] || '';
-    ctx.font = 'bold 14px sans-serif';
-    const tw = ctx.measureText(lbl).width + 14;
-    ctx.fillStyle = 'rgba(0,0,0,0.85)';
-    ctx.fillRect(cc.x - tw/2, cc.y + 14, tw, 20);
-    ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
-    ctx.strokeRect(cc.x - tw/2, cc.y + 14, tw, 20);
-    ctx.fillStyle = '#fff';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(lbl, cc.x, cc.y + 24);
     if (h.robber) {
-      ctx.fillStyle = '#111';
-      ctx.beginPath(); ctx.arc(cc.x, cc.y + 16, 12, 0, Math.PI*2); ctx.fill();
-      ctx.fillStyle = '#fff';
-      ctx.font = 'bold 14px sans-serif';
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText('R', cc.x, cc.y + 16);
+      drawRobber(cc.x, cc.y + 14);
     }
     if (mode === 'robber' && pendingRobberHex === null) {
       ctx.strokeStyle = 'rgba(255,80,80,0.9)';
@@ -1399,5 +1408,6 @@ window.CatanGame = {
     if (kind === 'city') drawCity(px, py, color); else drawSettlement(px, py, color);
   },
   _debugDrawRoad: (p0, p1, color) => drawRoadBar(p0, p1, color, 8, 0.24),
+  _debugDrawRobber: (px, py) => drawRobber(px, py),
 };
 })();

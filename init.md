@@ -127,6 +127,12 @@ Phase 2（Web UI）進行中 — Pythonバックエンド + Canvas フロント�
 - プレイ中は他人の手札は秘匿のまま（枚数のみ `dev_count`）。
 - テスト: `tests/test_dev_reveal.py`（プレイ中の秘匿／勝敗後の公開／使用済みと未使用の区別／空手札）、`tests/test_wsgi.py` に WSGI 経由の公開確認を追加、`/tmp/opencode/test_ui23.js`（UI表示6項目）。
 
+## 地形ラベルの削除と盗賊の駒化（v21）
+
+- **HEX マスの地形名ラベルを削除**。`TERRAIN_LABEL` を廃止し、`render()` から黒い箱のラベル描画を撤去（テクスチャで種類は判別できる）。`TERRAIN_COLOR` はフォールバックとして残置。
+- **盗賊（ロバー）を駒化**。`drawRobber(px, py)` を追加し、黒丸に「R」をやめて**初代カタン風の黒い人物シルエット**（マント＋頭＋顔の白い部分、細い黒い輪郭）に。サイズは `(scale/50) * 0.8 * 1.2 * 1.5`（＝1.44倍）。`h.robber` のマスに描画。
+- テスト: `/tmp/opencode/test_ui25.js` に「盗賊は図形で描画＝テキストを出さない」「地形ラベルは撤去済み」を追加。
+
 ## 駒と街道のデザイン（v20）
 
 初代カタン（1995）の木製ブロックを 2D で見た形に寄せて、開拓地・都市・街道を描き直した。画像アセットなし・すべてベクター。
@@ -147,11 +153,10 @@ Phase 2（Web UI）進行中 — Pythonバックエンド + Canvas フロント�
 - **ちらつき防止**: 地形ごとの固定シード（`_rng`）で模様を生成するので、ポーリング再描画でも毎回同一。
 - **拡大縮小/DPR 追従**: キャッシュキーに `size` を含むため `scale` 変更時に作り直す。`TERRAIN_COLOR` はフォールバックとして残置。
 - 数字チップは**羊皮紙風の円盤**（`#f3ead1`＋茶枠）に変更し、テクスチャ上でも読みやすくした。
-- テスト: `/tmp/opencode/test_ui25.js`（6地形でテクスチャ生成／19マス以上／キャンバスが多色＝テクスチャ適用済み／開拓地=5頂点・都市=7頂点／街道は2回ストローク／JS例外0／リサイズ後も正常）。スクショ `/tmp/opencode/board_textures.png`、`board_textures_phone.png`、`board_pieces.png`/`board_pieces_zoom.png`、`board_roads.png`。
+- **テスト**: `/tmp/opencode/test_ui25.js`（6地形でテクスチャ生成／19マス以上／キャンバスが多色＝テクスチャ適用済み／開拓地=5頂点・都市=7頂点／街道は2回ストローク／盗賊は図形／JS例外0／リサイズ後も正常）。スクショ `/tmp/opencode/board_textures.png`、`board_textures_phone.png`、`board_pieces.png`/`board_pieces_zoom.png`、`board_roads.png`、`board_robber.png`。
 
 ## 最終仕上げ（優先度低・後日）
 
-- **盗賊の画像化**（現在は丸に「R」のラベル）。
 - **港の画像化**と埋め込み（現在は比率ラベルのみ描画）。
 
 ## UI 調整（v15）
