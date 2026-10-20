@@ -61,11 +61,12 @@ class Board:
     # toward the centre, skipping the desert hex.
     NUMBER_SEQUENCE = [5, 2, 6, 3, 8, 10, 9, 12, 11, 4, 8, 10, 9, 4, 5, 6, 3, 11]
 
-    def __init__(self, seed=None):
+    def __init__(self, seed=None, desert="coast_ng"):
         import random
         rng = random.Random(seed)
         self.seed = seed
         self.rng = rng
+        self.desert_mode = desert          # "center" | "coast_ng" | "none"
         self.hexes = {}  # (q,r) -> Hex
         self.vertices = {}  # vertex_key -> {hexes, building, owner}
         self.edges = {}  # edge_key -> {hexes, road_owner}
@@ -206,11 +207,20 @@ class Board:
         return outer + inner + [(0, 0)]
 
     def _assign_terrains(self, rng):
-        # The desert is placed inland (inner ring or centre) so that no
-        # coastal hex is desert.  The other 18 terrains are shuffled over
-        # the remaining hexes.
-        inland = self._ring(1) + [(0, 0)]
-        desert_key = rng.choice(inland)
+        # Where the desert goes is a house rule:
+        #   "center"   - always the middle hex
+        #   "coast_ng" - anywhere inland (inner ring or centre) so NO coastal hex
+        #                is desert (the default)
+        #   "none"     - anywhere on the board, coast included
+        # The other 18 terrains are shuffled over the remaining hexes.
+        mode = getattr(self, "desert_mode", "coast_ng")
+        if mode == "center":
+            desert_key = (0, 0)
+        elif mode == "none":
+            desert_key = rng.choice(list(self.hexes.keys()))
+        else:                                   # "coast_ng" (default)
+            inland = self._ring(1) + [(0, 0)]
+            desert_key = rng.choice(inland)
         terrains = [t for t in self.TERRAINS if t != TerrainType.DESERT]
         rng.shuffle(terrains)
         ti = 0

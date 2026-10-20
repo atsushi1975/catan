@@ -178,6 +178,74 @@ function terrainTexture(terrain, size) {
   return off;
 }
 
+// ---------------------------------------------------------------------------
+// Sea
+//   The area around the island is water. The tile is SEAMLESS: every mark is
+//   drawn nine times (a 3x3 wrap) and the centre tile is cropped out, so the
+//   left/right and top/bottom edges match exactly and no seam shows when the
+//   tile repeats. The base colour is flat for the same reason.
+// ---------------------------------------------------------------------------
+function seaTexture(size) {
+  const key = 'sea@' + size;
+  const hit = TEXTURE_CACHE.get(key);
+  if (hit) return hit;
+  const off = document.createElement('canvas');
+  off.width = off.height = size;
+  const c = off.getContext('2d');
+
+  // Draw everything on a 3x bigger canvas so wraps are simple offsets, then
+  // crop the middle tile - the classic way to build a seamless texture.
+  const big = document.createElement('canvas');
+  big.width = big.height = size * 3;
+  const b = big.getContext('2d');
+
+  const base = '#84bcd4';
+  b.fillStyle = base;
+  b.fillRect(0, 0, size * 3, size * 3);
+
+  const rnd = _rng(99);
+  const put = (fn) => {
+    for (let oy = -1; oy <= 1; oy++) {
+      for (let ox = -1; ox <= 1; ox++) {
+        b.save();
+        b.translate(ox * size, oy * size);
+        fn(b, rnd);
+        b.restore();
+      }
+    }
+  };
+
+  // soft, gentle swells (low contrast)
+  for (let i = 0; i < 20; i++) {
+    const seedx = rnd(), seedy = rnd(), seedr = rnd();
+    const x = seedx * size, y = seedy * size, r = size * (0.10 + seedr * 0.14);
+    put((b) => {
+      const rg = b.createRadialGradient(x, y, 0, x, y, r);
+      rg.addColorStop(0, 'rgba(255,255,255,0.10)');
+      rg.addColorStop(1, 'rgba(255,255,255,0)');
+      b.fillStyle = rg;
+      b.beginPath(); b.arc(x, y, r, 0, Math.PI * 2); b.fill();
+    });
+  }
+  // a few soft, rounded wave marks
+  for (let i = 0; i < 16; i++) {
+    const x = rnd() * size, y = rnd() * size, r = size * (0.03 + rnd() * 0.035);
+    const a0 = Math.PI * (1.15 + rnd() * 0.15), a1 = Math.PI * (1.7 + rnd() * 0.15);
+    const alpha = 0.08 + rnd() * 0.08;
+    put((b) => {
+      b.strokeStyle = `rgba(255,255,255,${alpha})`;
+      b.lineWidth = Math.max(1, size * 0.006);
+      b.lineCap = 'round';
+      b.beginPath(); b.arc(x, y, r, a0, a1); b.stroke();
+    });
+  }
+
+  // crop the centre tile
+  c.drawImage(big, size, size, size, size, 0, 0, size, size);
+  TEXTURE_CACHE.set(key, off);
+  return off;
+}
+
 let canvas, ctx;
 let state = null;
 let mode = 'none';
@@ -461,11 +529,54 @@ function fitCanvas() {
   if (canvas.width !== w || canvas.height !== h) resize();
 }
 
+// World-space half-size of the water square (covers the island AND the port
+// labels/text, but not the whole canvas).
+const SEA_HALF = 5.6;
+
+function drawSea() {
+  const half = SEA_HALF * scale;
+  const cx = canvas.width / 2, cy = canvas.height / 2;
+  const x0 = cx - half, y0 = cy - half, side = half * 2;
+  const tile = Math.max(64, Math.round(scale * 4));
+  const tex = seaTexture(tile);
+  const r = scale * 0.6;                 // softly rounded corners
+  ctx.save();
+  // clip to a rounded square so the water reads as a "physical" sea tile
+  ctx.beginPath();
+  ctx.moveTo(x0 + r, y0);
+  ctx.arcTo(x0 + side, y0, x0 + side, y0 + side, r);
+  ctx.arcTo(x0 + side, y0 + side, x0, y0 + side, r);
+  ctx.arcTo(x0, y0 + side, x0, y0, r);
+  ctx.arcTo(x0, y0, x0 + side, y0, r);
+  ctx.closePath();
+  ctx.clip();
+  for (let y = y0; y < y0 + side; y += tile) {
+    for (let x = x0; x < x0 + side; x += tile) {
+      ctx.drawImage(tex, x, y);
+    }
+  }
+  // soft edge so it blends into the dark background
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+  ctx.beginPath();
+  ctx.moveTo(x0 + r, y0);
+  ctx.arcTo(x0 + side, y0, x0 + side, y0 + side, r);
+  ctx.arcTo(x0 + side, y0 + side, x0, y0 + side, r);
+  ctx.arcTo(x0, y0 + side, x0, y0, r);
+  ctx.arcTo(x0, y0, x0 + side, y0, r);
+  ctx.closePath();
+  ctx.stroke();
+  ctx.restore();
+}
+
 function render() {
   if (!ctx) return;
   ctx.fillStyle = '#1a1a1a';
   ctx.fillRect(0,0,canvas.width,canvas.height);
   if (!state || !state.board) return;
+  ctx.save();
+  drawSea();
+  ctx.restore();
   const b = state.board;
   for (const h of b.hexes) {
     const c = hexCenter(h.q, h.r);
@@ -504,7 +615,8 @@ function render() {
       ctx.fillText(h.number, cc.x, cc.y - 2);
     }
     if (h.robber) {
-      drawRobber(cc.x, cc.y + 14);
+      // drawn on top of the number chip: the robber is allowed to cover it
+      drawRobber(cc.x, cc.y - 2);
     }
     if (mode === 'robber' && pendingRobberHex === null) {
       ctx.strokeStyle = 'rgba(255,80,80,0.9)';
@@ -1402,7 +1514,7 @@ window.CatanGame = {
   get pendingKnight() { return pendingKnight; },
   set pendingKnight(v) { pendingKnight = v; },
   hexCenter, render, updatePanels, sendRobberMove, post,
-  terrainTexture,
+  terrainTexture, seaTexture,
   // test hooks: draw a single piece / road so the shapes can be inspected
   _debugDrawPiece: (kind, px, py, color) => {
     if (kind === 'city') drawCity(px, py, color); else drawSettlement(px, py, color);

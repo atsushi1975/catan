@@ -17,10 +17,10 @@ PHASE_END = "end"
 class Game:
     COLORS = ["red", "blue", "white", "orange"]
 
-    def __init__(self, num_players=4, seed=None, names=None):
+    def __init__(self, num_players=4, seed=None, names=None, desert="coast_ng"):
         self.seed = seed
         self.rng = random.Random(seed)
-        self.board = Board(seed=seed)
+        self.board = Board(seed=seed, desert=desert)
         self.players = [
             Player(i, (names[i] if names and i < len(names) and names[i] else f"プレイヤー{i+1}"), self.COLORS[i])
             for i in range(num_players)

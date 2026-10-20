@@ -28,6 +28,17 @@
   #lobby .slot.mine { background: #1b3a1b; box-shadow: 0 0 0 1px #4caf50; }
   #lobby .slot:not([disabled]):hover { border-color: #ffd54f; }
   #lobby .slot[disabled] { opacity: .75; cursor: default; }
+  #lobby .rules { margin-top: 10px; padding: 10px 12px; border: 1px solid #333;
+    border-radius: 8px; background: #1c1c1c; }
+  #lobby .rules-title { font-size: 13px; font-weight: bold; color: #ffd54f;
+    margin-bottom: 6px; }
+  #lobby .rules-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  #lobby .rules-label { font-size: 13px; color: #bbb; }
+  #lobby .rules-choices { display: flex; gap: 12px; flex-wrap: wrap; }
+  #lobby .radio { font-size: 13px; display: inline-flex; align-items: center;
+    gap: 4px; cursor: pointer; }
+  #lobby .radio input { accent-color: #4caf50; }
+  #lobby .rules-note { margin-top: 6px; font-size: 11px; color: #888; }
   /* Lobby board preview: the map is drawn above the lobby panel so the turn
      order can be chosen while looking at the board that will be played. */
   body.preview { display: flex; flex-direction: column; min-height: 100vh; }
@@ -122,6 +133,25 @@
 
     html += `<div class="muted">参加者 ${r.seats.length} / 4（2人以上で開始できます）</div>`;
 
+    // house rules (chosen before the game starts)
+    const st = r.settings || {};
+    const desertOpts = [
+      ['center',   'センター固定',   '砂漠は常に中央'],
+      ['coast_ng', '海岸砂漠NG',     '砂漠は内陸（海岸以外）※既定'],
+      ['none',     '固定なし',       '砂漠はどこでも（海岸もあり）'],
+    ];
+    html += `<div class="rules"><div class="rules-title">ハウスルール</div>
+      <div class="rules-row"><span class="rules-label">初期砂漠</span><span class="rules-choices">`;
+    for (const [val, label, title] of desertOpts) {
+      const checked = (st.desert || 'coast_ng') === val;
+      html += `<label class="radio" title="${title}">
+        <input type="radio" name="rule-desert" value="${val}" ${checked ? 'checked' : ''}>
+        ${label}</label>`;
+    }
+    html += `</span></div>
+      <div class="rules-note">※ 変更すると盤面を作り直します（ダイスの振り直しになります）</div>
+    </div>`;
+
     // seat list
     for (const s of r.seats) {
       const me = mySeat && s.seat === mySeat.seat;
@@ -182,6 +212,16 @@
     body.innerHTML = html;
     body.dataset.built = '1';
     lastKey = key;
+
+    // house rule radios
+    body.querySelectorAll('input[name="rule-desert"]').forEach(inp => {
+      inp.onchange = async () => {
+        const res = await act('room_setting', { key: 'desert', value: inp.value });
+        if (!res.ok) { alert(res.error || '設定を変更できませんでした'); }
+        lastKey = null;
+        renderLobby();
+      };
+    });
 
     if (!mySeat) {
       const inp = document.getElementById('name-input');

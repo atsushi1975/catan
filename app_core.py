@@ -61,6 +61,9 @@ ROOM = {
     "order": [],
     "g": None,
     "slots": {},        # lobby draft: seat index -> chosen turn number (1..N)
+    "settings": {       # house rules chosen in the lobby before the game starts
+        "desert": "coast_ng",   # "center" | "coast_ng" | "none"
+    },
 }
 LOCK = threading.RLock()
 
@@ -82,6 +85,7 @@ def reset_room():
         ROOM["order"] = []
         ROOM["g"] = None
         ROOM["slots"] = {}
+        ROOM["settings"] = {"desert": "coast_ng"}
 
 
 def _new_token():
@@ -162,6 +166,15 @@ def _draft_state():
     }
 
 
+DESERT_MODES = ("center", "coast_ng", "none")
+
+
+def _desert_mode():
+    """The house rule for where the desert goes (validated, with a safe default)."""
+    m = (ROOM.get("settings") or {}).get("desert", "coast_ng")
+    return m if m in DESERT_MODES else "coast_ng"
+
+
 def _ensure_board():
     """Create the board the lobby preview shows.
 
@@ -177,7 +190,8 @@ def _ensure_board():
         return g                          # keep the map that is already on screen
     if len(ROOM["seats"]) < 2:
         return None                       # nothing to decide with one player
-    ROOM["g"] = Game(num_players=len(ROOM["seats"]), seed=None)
+    ROOM["g"] = Game(num_players=len(ROOM["seats"]), seed=None,
+                     desert=_desert_mode())
     return ROOM["g"]
 
 
@@ -234,6 +248,7 @@ def serialize_room(token=None):
         "num_players": len(ROOM["seats"]),
         "draft": draft,
         "can_start": bool(draft and draft.get("ready")),
+        "settings": dict(ROOM.get("settings") or {}),
         "board": preview,
     }
 
@@ -533,6 +548,27 @@ def handle_lobby(action, payload):
                 return {"ok": False, "error": "順番がまだ来ていません"}
             slots[seat] = n
             return {"ok": True, "seat": seat, "slot": n}
+    if action == "room_setting":
+        with LOCK:
+            if ROOM["phase"] != "lobby":
+                return {"ok": False, "error": "ゲーム中は変更できません"}
+            s = ROOM.setdefault("settings", {})
+            key = payload.get("key")
+            val = payload.get("value")
+            if key in ("desert",):
+                if val not in DESERT_MODES:
+                    return {"ok": False, "error": "不正な設定値です"}
+                s[key] = val
+                # The desert placement changes the map, so a map that is already
+                # on screen is no longer valid - drop it and regenerate it right
+                # away with the new rule (players are looking at the board).
+                ROOM["g"] = None
+                ROOM["slots"] = {}
+                for seat in ROOM["seats"]:
+                    seat["roll"] = None
+                _ensure_board()
+                return {"ok": True, "settings": s}
+            return {"ok": False, "error": "不明な設定です"}
     if action == "room_start":
         with LOCK:
             if ROOM["phase"] != "lobby":
@@ -553,7 +589,8 @@ def handle_lobby(action, payload):
             # Reuse the board the players were looking at during the draft.
             g = _ensure_board()
             if g is None:
-                g = ROOM["g"] = Game(num_players=len(seats), seed=None, names=names)
+                g = ROOM["g"] = Game(num_players=len(seats), seed=None, names=names,
+                                     desert=_desert_mode())
             for i, p in enumerate(g.players):
                 p.name = names[i]
             ROOM["phase"] = "playing"
@@ -599,7 +636,7 @@ def handle_action(action, payload, actor, local=True):
             return {"ok": False, "error": "monitor only"}
         with LOCK:
             reset_room()
-            ROOM["g"] = Game(num_players=4, seed=None)
+            ROOM["g"] = Game(num_players=4, seed=None, desert=_desert_mode())
             ROOM["phase"] = "playing"
         return {"ok": True}
     if ROOM["phase"] != "playing":
