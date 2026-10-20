@@ -155,6 +155,31 @@ check(all("resources" not in p for p in others), "other players' resources hidde
 sa = as_player(first); sb = as_player(second)
 check(sa["you"] != sb["you"], "each token maps to a distinct player")
 
+# --- end of game: development cards are revealed to everyone ---------------
+# Reach into the live game (same process) and hand someone the win, then make
+# sure the public /state view opens up every player's dev cards.
+import app_core as _ac
+g = _ac.ROOM["g"]
+check(g is not None, "live game reachable for the reveal check")
+g.players[0].dev_cards = ["monopoly"]
+g.players[0].used_dev_cards = ["knight"]
+g.players[1].dev_cards = ["year_of_plenty"]
+g.players[1].vp = 10
+g._check_win()
+check(g.winner == 1, "winner set via _check_win")
+
+s, j = get_json("/state", query="token=" + first)
+check(all(p.get("revealed") for p in j["players"]),
+      "every player is revealed once the game is over")
+p0 = next(p for p in j["players"] if p["id"] == 0)
+p1 = next(p for p in j["players"] if p["id"] == 1)
+check(p0.get("dev_cards") == ["monopoly"], "loser's held cards visible after win")
+check(p0.get("used_dev_cards") == ["knight"], "used cards still listed separately")
+check(p1.get("dev_cards") == ["year_of_plenty"], "winner's held cards visible after win")
+
+# reset so the file leaves a clean room behind
+post_json({"action": "room_reset"})
+
 # --- 405 --------------------------------------------------------------------
 s, h, b = call("DELETE", "/")
 check(s.startswith("405"), "unsupported method -> 405")

@@ -98,7 +98,8 @@ PC を起動しなくても、クラウド上で動かして URL を配れます
 2. **サイコロを振る** → 出目の大きい順に、盤面を見ながら **何番目に手番が回るか** を指名
 3. 全員が指名したら **ゲーム開始**
 4. 以降は盤面の指示に従って操作（建設・交易・発展カード・盗賊など）
-5. ロビーに戻したいときは、監視画面（`/monitor`）の **初期化** ボタン
+5. 誰かが勝利したら、**全員の所持発展カードが公開**されます（使用済み／未使用が分かる）
+6. ロビーに戻したいときは、監視画面（`/monitor`）の **初期化** ボタン
 
 ### スマホでの操作
 
@@ -124,7 +125,8 @@ python3 tests/test_basic.py
 python3 tests/test_build.py
 python3 tests/test_rules.py
 python3 tests/test_vp.py
-python3 tests/test_wsgi.py     # WSGI (PythonAnywhere) 経由の E2E
+python3 tests/test_dev_reveal.py  # 勝敗後の発展カード公開
+python3 tests/test_wsgi.py       # WSGI (PythonAnywhere) 経由の E2E
 ```
 
 ## 構成

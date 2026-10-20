@@ -224,8 +224,8 @@ def serialize_room(token=None):
 #   viewer is None  -> monitor / hot-seat: everything visible
 #   viewer is a pid -> that player's private view
 # ---------------------------------------------------------------------------
-def serialize_player(p, viewer):
-    full = (viewer is None) or (p.id == viewer)
+def serialize_player(p, viewer, reveal=False):
+    full = reveal or (viewer is None) or (p.id == viewer)
     d = {
         "id": p.id, "name": p.name, "color": p.color,
         "hand_count": p.total_resources(),
@@ -236,6 +236,7 @@ def serialize_player(p, viewer):
         "longest_road": p.longest_road, "largest_army": p.largest_army,
         "free_roads": p.free_roads,
         "vp": p.vp,                      # visible (board) victory points
+        "revealed": reveal,              # True once the game is over (cards open)
     }
     if full:
         d["resources"] = {r.value: p.resources[r] for r in ResourceType if r != ResourceType.DESERT}
@@ -311,7 +312,7 @@ def serialize(g, viewer=None):
     v_list = list(b.vertices.keys())
     e_list = list(b.edges.keys())
 
-    players = [serialize_player(p, viewer) for p in g.players]
+    players = [serialize_player(p, viewer, reveal=g.winner is not None) for p in g.players]
 
     cur = g.current_player()
     valid_roads = []

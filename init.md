@@ -94,6 +94,16 @@ Phase 2（Web UI）進行中 — Pythonバックエンド + Canvas フロント�
 - Codespaces/PythonAnywhere の手順と無料枠の注意は `README.md` に記載。
 - テスト: `tests/test_wsgi.py`（WSGI 経由の E2E。静的配信・`/env` ゲート・join/roll/pick/start・秘匿情報の絞り込み・405/404）。
 
+## 勝敗確定後の発展カード公開（v18）
+
+勝者が決まったら（`winner` 確定＝`phase == "end"`）、**全員の所持発展カードを公開**する。
+
+- `serialize_player(p, viewer, reveal)` を追加し、`reveal=True` のときは誰の視点でも `dev_cards`/`new_dev_cards`/`hidden_vp`/`total_vp` を返す。`serialize()` が `reveal=(g.winner is not None)` を渡す。
+- 各プレイヤーに `revealed` フラグを出力。UI（`game.js`）は `p.revealed` のとき **未使用:[...]** を表示（購入直後は `(新規)`）。
+- **使用済み（`used_dev_cards`）は従来どおり常時公開**なので、勝敗後は「使用済み」と「未使用」を並べて確認できる。例: `使用済:[騎士] 未使用:[独占]`。
+- プレイ中は他人の手札は秘匿のまま（枚数のみ `dev_count`）。
+- テスト: `tests/test_dev_reveal.py`（プレイ中の秘匿／勝敗後の公開／使用済みと未使用の区別／空手札）、`tests/test_wsgi.py` に WSGI 経由の公開確認を追加、`/tmp/opencode/test_ui23.js`（UI表示6項目）。
+
 ## 最終仕上げ（優先度低・後日）
 
 - **HEX マスに埋め込む資源の画像**（木・土・羊・麦・鉄・砂漠）の作成と埋め込み。

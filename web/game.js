@@ -354,7 +354,17 @@ function updateSidebar() {
     const div = document.createElement('div');
     div.className = 'player' + (p.id===state.current?' current':'') + ((VIEW==='client' && p.id===state.you)?' me':'');
     const used = (p.used_dev_cards||[]).length ? ` 使用済:[${p.used_dev_cards.map(devName).join(',')}]` : '';
-    div.innerHTML = `<span style="display:inline-block;width:12px;height:12px;background:${playerColor(p.id)};border:1px solid #fff;border-radius:2px;margin-right:4px;vertical-align:-1px;"></span><b>${p.name}</b> (P${p.id}) 勝利点:${p.total_vp} 手札:${p.hand_count} 発展:${p.dev_count}${p.longest_road?' [最長の道]':''}${p.largest_army?' [最大騎士団]':''}${used}`;
+    // Once the game is over every player's holding is opened up: show what is
+    // left in hand (未使用) alongside what has been played (使用済).
+    let held = '';
+    if (p.revealed && Array.isArray(p.dev_cards)) {
+      const remaining = [...p.dev_cards, ...(p.new_dev_cards||[])];
+      const fresh = new Set(p.new_dev_cards||[]);
+      held = ' 未使用:[' + (remaining.length
+        ? remaining.map(c => devName(c) + (fresh.has(c) ? '(新規)' : '')).join(',')
+        : 'なし') + ']';
+    }
+    div.innerHTML = `<span style="display:inline-block;width:12px;height:12px;background:${playerColor(p.id)};border:1px solid #fff;border-radius:2px;margin-right:4px;vertical-align:-1px;"></span><b>${p.name}</b> (P${p.id}) 勝利点:${p.total_vp} 手札:${p.hand_count} 発展:${p.dev_count}${p.longest_road?' [最長の道]':''}${p.largest_army?' [最大騎士団]':''}${used}${held}`;
     pd.appendChild(div);
   }
 
