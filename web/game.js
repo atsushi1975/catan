@@ -246,6 +246,177 @@ function seaTexture(size) {
   return off;
 }
 
+// ---------------------------------------------------------------------------
+// Dice (2d6)
+//   Two dice sit in the bottom-right corner of the board so the current roll is
+//   always readable without looking at the sidebar/text. They are painted, not
+//   animated, and use the same soft hand-painted ivory/bone look as the rest of
+//   the board (no photographic texture, no glow).
+// ---------------------------------------------------------------------------
+
+// Soft bone face texture: warm ivory gradient + gentle light + a few faint
+// speckles. Drawn once per size and cached, like the terrain tiles.
+function diceTexture(size) {
+  const key = 'dice@' + size;
+  const hit = TEXTURE_CACHE.get(key);
+  if (hit) return hit;
+  const off = document.createElement('canvas');
+  off.width = off.height = size;
+  const c = off.getContext('2d');
+  const g = c.createLinearGradient(0, 0, 0, size);
+  g.addColorStop(0, '#fbf6e9');
+  g.addColorStop(0.55, '#f2e9d5');
+  g.addColorStop(1, '#e2d4ba');
+  c.fillStyle = g;
+  c.fillRect(0, 0, size, size);
+  // soft light from the upper-left so the face reads as slightly rounded
+  const rg = c.createRadialGradient(size * 0.34, size * 0.30, size * 0.05,
+                                    size * 0.5, size * 0.5, size * 0.78);
+  rg.addColorStop(0, 'rgba(255,255,255,0.55)');
+  rg.addColorStop(1, 'rgba(120,100,70,0.14)');
+  c.fillStyle = rg; c.fillRect(0, 0, size, size);
+  // faint age speckles
+  const rnd = _rng(4242);
+  for (let i = 0; i < 40; i++) {
+    const x = rnd() * size, y = rnd() * size, r = size * (0.004 + rnd() * 0.010);
+    c.globalAlpha = 0.05 + rnd() * 0.07;
+    c.fillStyle = rnd() < 0.5 ? '#8a7a5a' : '#ffffff';
+    c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fill();
+  }
+  c.globalAlpha = 1;
+  TEXTURE_CACHE.set(key, off);
+  return off;
+}
+
+// Pip offsets in a unit square (0..1), top-left origin, for faces 1..6.
+const DICE_PIPS = {
+  1: [[0.5, 0.5]],
+  2: [[0.28, 0.28], [0.72, 0.72]],
+  3: [[0.26, 0.26], [0.5, 0.5], [0.74, 0.74]],
+  4: [[0.28, 0.28], [0.72, 0.28], [0.28, 0.72], [0.72, 0.72]],
+  5: [[0.28, 0.28], [0.72, 0.28], [0.5, 0.5], [0.28, 0.72], [0.72, 0.72]],
+  6: [[0.28, 0.24], [0.72, 0.24], [0.28, 0.5], [0.72, 0.5], [0.28, 0.76], [0.72, 0.76]],
+};
+
+function _roundRect(c, x, y, w, h, r) {
+  c.beginPath();
+  c.moveTo(x + r, y);
+  c.arcTo(x + w, y, x + w, y + h, r);
+  c.arcTo(x + w, y + h, x, y + h, r);
+  c.arcTo(x, y + h, x, y, r);
+  c.arcTo(x, y, x + w, y, r);
+  c.closePath();
+}
+
+// One die centred at (cx, cy). `value` 1..6 draws that face; anything else
+// draws an empty face (the test hook uses it, the board never does).
+function drawDie(cx, cy, side, value) {
+  const r = side * 0.18;
+  const x = cx - side / 2, y = cy - side / 2;
+  // drop shadow so the die sits on the sea rather than floating
+  ctx.save();
+  ctx.globalAlpha = 0.28;
+  ctx.fillStyle = '#000';
+  _roundRect(ctx, x + side * 0.05, y + side * 0.07, side, side, r);
+  ctx.fill();
+  ctx.restore();
+  // face
+  ctx.save();
+  _roundRect(ctx, x, y, side, side, r);
+  ctx.clip();
+  const tex = diceTexture(Math.max(8, Math.round(side)));
+  ctx.drawImage(tex, x, y, side, side);
+  ctx.restore();
+  // thin dark outline (same weight as the pieces)
+  ctx.strokeStyle = '#3a3128';
+  ctx.lineWidth = Math.max(1, side * 0.045);
+  _roundRect(ctx, x, y, side, side, r);
+  ctx.stroke();
+  // pips (the "one" pip is red, as on a Japanese die; the rest are near-black)
+  if (value >= 1 && value <= 6) {
+    const pipR = side * 0.085;
+    const red = (value === 1);
+    ctx.fillStyle = red ? '#c62828' : '#2c2620';
+    for (const [px, py] of DICE_PIPS[value]) {
+      ctx.beginPath();
+      ctx.arc(x + px * side, y + py * side, pipR, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+}
+
+// Draw the two dice in the bottom-right of the board (inside the sea square).
+// Shown only once a game is in play AND dice have been thrown: the lobby (turn
+// order draft), the initial-placement phase and a fresh turn before its roll
+// all show no dice.
+//
+// Placement: the dice sit in the bottom-right corner of the sea, but are kept
+// clear of the port labels (ports carry information, so the dice never cover
+// them). Candidate spots are tried from the corner inwards/upwards and the
+// first one that does not touch a port label wins.
+function _portLabelBoxes(b) {
+  const boxes = [];
+  for (const pe of (b.port_edges || [])) {
+    const p1 = toCanvas({x:pe.x1, y:pe.y1});
+    const p2 = toCanvas({x:pe.x2, y:pe.y2});
+    const mid = {x:(p1.x+p2.x)/2, y:(p1.y+p2.y)/2};
+    let ox = mid.x - canvas.width/2, oy = mid.y - canvas.height/2;
+    const ol = Math.hypot(ox, oy) || 1;
+    ox /= ol; oy /= ol;
+    const lx = mid.x + ox*scale*0.9, ly = mid.y + oy*scale*0.9;
+    const txt = portLabel(pe.type);
+    ctx.font = 'bold 11px sans-serif';
+    const tw = ctx.measureText(txt).width + 8;
+    boxes.push({ x1: lx - tw/2, y1: ly - 9, x2: lx + tw/2, y2: ly + 9 });
+  }
+  return boxes;
+}
+
+function _overlaps(box, other) {
+  const m = 4;   // small clearance so the dice do not touch a label
+  return !(box.x2 + m < other.x1 || box.x1 - m > other.x2 ||
+           box.y2 + m < other.y1 || box.y1 - m > other.y2);
+}
+
+// Where the 2-dice group goes (centre), kept clear of the port labels.
+function dicePlacement() {
+  const half = SEA_HALF * scale;
+  const cx = canvas.width / 2, cy = canvas.height / 2;
+  const side = Math.max(18, scale * 0.8);
+  const gap = side * 0.28;
+  const groupW = side * 2 + gap;
+  const groupH = side;
+  const pad = side * 0.4;
+  const labels = _portLabelBoxes(state.board || {});
+  const right = cx + half - pad - groupW / 2;
+  const bottom = cy + half - pad - groupH / 2;
+  const cands = [];
+  for (const dy of [0, -side * 1.3, -side * 2.6]) {
+    for (const dx of [0, -side * 1.3, -side * 2.6, -side * 3.9]) {
+      cands.push({ x: right + dx, y: bottom + dy });
+    }
+  }
+  let spot = cands[0];
+  for (const c of cands) {
+    const box = { x1: c.x - groupW/2, y1: c.y - groupH/2, x2: c.x + groupW/2, y2: c.y + groupH/2 };
+    if (!labels.some(l => _overlaps(box, l))) { spot = c; break; }
+  }
+  const box = { x1: spot.x - groupW/2, y1: spot.y - groupH/2, x2: spot.x + groupW/2, y2: spot.y + groupH/2 };
+  return { x: spot.x, y: spot.y, side, gap, groupW, groupH, box, labels };
+}
+
+function drawDice() {
+  const PLAY_PHASES = ['roll', 'main', 'end'];
+  if (!state || !PLAY_PHASES.includes(state.phase)) return;
+  const dice = (state && Array.isArray(state.dice)) ? state.dice : [];
+  if (dice.length < 2 || !dice[0] || !dice[1]) return;   // only once rolled
+  const p = dicePlacement();
+  const x1 = p.x - p.groupW/2 + p.side/2;
+  const x2 = x1 + p.side + p.gap;
+  drawDie(x1, p.y, p.side, dice[0]);
+  drawDie(x2, p.y, p.side, dice[1]);
+}
+
 let canvas, ctx;
 let state = null;
 let mode = 'none';
@@ -669,6 +840,7 @@ function render() {
     }
   }
   drawPortLabels(b);  // topmost: the port ratios must stay readable
+  drawDice();         // the current roll, always visible bottom-right
 }
 
 function drawPorts(b) {
@@ -1514,12 +1686,18 @@ window.CatanGame = {
   get pendingKnight() { return pendingKnight; },
   set pendingKnight(v) { pendingKnight = v; },
   hexCenter, render, updatePanels, sendRobberMove, post,
-  terrainTexture, seaTexture,
+  terrainTexture, seaTexture, diceTexture,
   // test hooks: draw a single piece / road so the shapes can be inspected
   _debugDrawPiece: (kind, px, py, color) => {
     if (kind === 'city') drawCity(px, py, color); else drawSettlement(px, py, color);
   },
   _debugDrawRoad: (p0, p1, color) => drawRoadBar(p0, p1, color, 8, 0.24),
   _debugDrawRobber: (px, py) => drawRobber(px, py),
+  // test hooks: a single die face and the whole 2d6 group
+  _debugDrawDie: (px, py, side, value) => drawDie(px, py, side, value),
+  _debugDrawDice: () => drawDice(),
+  // test hooks: geometry used to keep the dice clear of the ports
+  _debugPortLabelBoxes: () => _portLabelBoxes(state.board || {}),
+  _debugDicePlacement: () => dicePlacement(),
 };
 })();

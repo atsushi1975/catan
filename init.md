@@ -133,6 +133,18 @@ Phase 2（Web UI）進行中 — Pythonバックエンド + Canvas フロント�
 - プレイ中は他人の手札は秘匿のまま（枚数のみ `dev_count`）。
 - テスト: `tests/test_dev_reveal.py`（プレイ中の秘匿／勝敗後の公開／使用済みと未使用の区別／空手札）、`tests/test_wsgi.py` に WSGI 経由の公開確認を追加、`/tmp/opencode/test_ui23.js`（UI表示6項目）。
 
+## 盤面右下の 2d6（v24）
+
+ゲーム中の現在の出目を、盤面の右下に**テクスチャ化した 2 個のダイス**で常時表示する（アニメーションなし）。
+
+- `diceTexture(size)`: 象牙色の柔らかい手描き風テクスチャ（地形・海と同系）。角丸・薄い影・**細い濃い輪郭**（駒と同じ細さ）。
+- `drawDie(cx, cy, side, value)`: 1 つのダイス。ピップは 1〜6 を正しい配置で。**「1」の目だけ赤**（`#c62828`、日本のサイコロ風）、2〜6 は黒。
+- `drawDice()`: 2 個を右下に並べて配置（`dicePlacement()` が位置計算）。**表示条件はプレイ中（`phase` が `roll`/`main`/`end`）かつ出目が有効なときだけ**。
+  - ロビー（順番決め）・初期配置（`setup`）・ターン開始直後でまだ振っていない（`dice==[0,0]`）では**描かない**。
+- **港ラベルを隠さない**: `_portLabelBoxes()` で港ラベルの矩形を求め、`dicePlacement()` が右下コーナーから「左へ・上へ」候補を最大12通り試し、**港ラベルに触れない最初の位置**に置く（余白4px）。サイズは `scale*0.8`（最小18px）と小さめで視認重視。
+- テストフック: `CatanGame.diceTexture` / `_debugDrawDie` / `_debugDrawDice` / `_debugPortLabelBoxes` / `_debugDicePlacement`。
+- テスト: `/tmp/opencode/test_ui28.js`（ロビー・初期配置・振る前は出ない／振ると出る／右下配置／サイズ／港ラベル非重複／1は赤・6は黒／テクスチャ）。
+
 ## 海のテクスチャとハウスルール（v22）
 
 ### 海（シームレスタイル）
