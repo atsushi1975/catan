@@ -47,6 +47,51 @@ PC を起動しなくても、クラウド上で動かして URL を配れます
 > Codespaces は一定時間で自動停止します。進行中のゲームはメモリ上にあるため、
 > 停止・再起動で消えます。**1 セッション内で遊び切る**使い方になります。
 
+## 動かし方（PythonAnywhere：常時公開・無料）
+
+無操作でスリープしないので「URL を開けばいつでも遊べる」構成にできます（無料枠）。
+常駐プロセスは持てないため、**WSGI アプリ**として動かします
+（`wsgi.py`。追加ライブラリ不要、標準ライブラリのみ）。
+
+### 手順
+
+1. **コードを配置**
+   - PythonAnywhere のコンソール（Bash）で:
+     ```bash
+     git clone https://github.com/<あなた>/catan.git
+     ```
+     （Private の場合は `https://<token>@github.com/<あなた>/catan.git` など）
+   - 配置先の例: `/home/<user>/catan`
+2. **Web アプリを作成**
+   - ダッシュボード → **Web** タブ → **Add a new web app**
+   - **Manual configuration** を選ぶ → Python 3.10 以上
+3. **パスを設定**（Web タブの設定欄）
+   - **Source code**: `/home/<user>/catan`
+   - **Working directory**: `/home/<user>/catan`
+4. **WSGI 設定ファイルを編集**
+   - Web タブの **WSGI configuration file**（`/var/www/<user>_pythonanywhere_com_wsgi.py`）を開き、
+     中身を次で置き換えます:
+     ```python
+     import sys
+     sys.path.insert(0, "/home/<user>/catan")
+     from wsgi import application
+     ```
+5. **Reload** を押す → `https://<user>.pythonanywhere.com/` で遊べます
+   - プレイヤー画面: `/`
+   - 監視画面: `/monitor`
+
+### 重要（無料枠の注意）
+
+- **必ず 1 ワーカー（単一プロセス）で動かしてください。** 状態はメモリ上にあるため、
+  ワーカーが複数あると「入室したのに次の操作で別人扱い」等が起きます。
+  `https://<user>.pythonanywhere.com/env` を開くと `pid` と `owner_pid` を返すので、
+  複数ワーカーになっていれば値が食い違って見えます（＝その場合はワーカー数を 1 に）。
+- **1 日 1 回の強制再起動**があります（無料枠の仕様）。その時、進行中のゲームは消えます。
+  **遊ぶ直前からセッション内で遊び切る**運用が安全です。
+- `?debug=1`（監視画面を操作可能にするスイッチ）は**外部からは無効**です
+  （PythonAnywhere 経由では `debug_allowed=false`）。監視専用の強力な操作も同様に拒否されます。
+- ロビーに戻す `初期化` などは、ローカル実行時に使ってください。
+
 ## 遊び方（概要）
 
 1. 各自が名前を入れて **入室**
@@ -79,13 +124,16 @@ python3 tests/test_basic.py
 python3 tests/test_build.py
 python3 tests/test_rules.py
 python3 tests/test_vp.py
+python3 tests/test_wsgi.py     # WSGI (PythonAnywhere) 経由の E2E
 ```
 
 ## 構成
 
 ```
 catan/
-├── server.py        # HTTP サーバー（ロビー・認可・公開情報の絞り込み）
+├── app_core.py      # ゲーム/ロビー状態とルーティング（HTTP 非依存・共通）
+├── server.py        # ローカル/Codespaces 用 HTTP サーバー（app_core を使う薄い層）
+├── wsgi.py          # PythonAnywhere 用 WSGI アプリ（app_core を使う薄い層）
 ├── cli.py           # テキストでロジックを試す CLI
 ├── run.sh           # 起動スクリプト
 ├── game/            # ゲームロジック（UI 非依存）
@@ -102,5 +150,9 @@ catan/
 │   └── style.css
 └── tests/           # テスト
 ```
+
+ゲームの状態は `app_core.ROOM`（メモリ上）にあります。`server.py` と `wsgi.py` は
+同じ `app_core` を共有する薄いアダプタなので、どちらで動かしても挙動は同じです。
+**必ず 1 プロセスで動かしてください**（複数ワーカーだと状態が分裂します）。
 
 詳細な設計・ルール対応は `init.md` を参照。

@@ -80,6 +80,19 @@ Phase 2（Web UI）進行中 — Pythonバックエンド + Canvas フロント�
 - `leave` アクションを追加し、ボタンを **「退出する」**（`confirm` 付き）に変更。押すとサーバーで席を削除してからトークンを消してリロードするので、ロビーには自分の席が残らない。再入室は名前欄が空の状態からやり直す。
 - テスト: `test_leave_api.py`（20項目）、`test_ui21.js`（11項目）。
 
+## WSGI 化とデプロイ（v18）
+
+常時公開（PC 起動不要・無操作で止まらない）を狙って、**HTTP 層を差し替え可能**にした。
+
+- **`app_core.py`** を新設し、ゲーム/ロビー状態（`ROOM`）・シリアライズ・`handle_lobby`/`handle_action`・ルーティング（`route_get`/`route_post`）をここへ集約（HTTP 非依存）。
+- **`server.py`** は `http.server` の薄いアダプタに縮小（ローカル/Codespaces 用）。
+- **`wsgi.py`** を新設（PythonAnywhere 用）。**標準ライブラリのみ**の WSGI アプリで Flask 不要。`application`/`app` を公開。
+- ルーティング: `/`(client.html), `/monitor`(index.html), `/style.css`, `/game.js`, `/assets/*`, `/room`, `/env`, `/state`。パストラバーサルは 404。
+- **`/env`** に `pid`/`owner_pid` を追加。PythonAnywhere で複数ワーカーになると値が食い違い、状態分裂を検知できる（**1 ワーカー必須**）。
+- `wsgi.py` のクライアント IP は `X-Forwarded-For`（プロキシ経由）を優先。これにより公開 URL 経由では `debug_allowed=false`（`?debug=1` は外部無効のまま）。
+- Codespaces/PythonAnywhere の手順と無料枠の注意は `README.md` に記載。
+- テスト: `tests/test_wsgi.py`（WSGI 経由の E2E。静的配信・`/env` ゲート・join/roll/pick/start・秘匿情報の絞り込み・405/404）。
+
 ## 最終仕上げ（優先度低・後日）
 
 - **HEX マスに埋め込む資源の画像**（木・土・羊・麦・鉄・砂漠）の作成と埋め込み。
