@@ -49,7 +49,13 @@ const phaseJa = {setup:'初期配置', roll:'サイコロ', main:'建設・交�
 
 function api(path) {
   let url = path;
-  if (TOKEN) url += (path.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(TOKEN);
+  const params = [];
+  if (TOKEN) params.push('token=' + encodeURIComponent(TOKEN));
+  // Tell the server this is the view-only monitor page. The server only grants
+  // the full (debug) view to a LOCAL monitor, so a token-less player page can
+  // never be upgraded to "see everything" just by being on the same machine.
+  if (VIEW === 'monitor') params.push('view=monitor');
+  if (params.length) url += (path.includes('?') ? '&' : '?') + params.join('&');
   return fetch(url).then(r => r.json());
 }
 async function getState() {

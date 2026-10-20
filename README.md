@@ -108,6 +108,14 @@ PC を起動しなくても、クラウド上で動かして URL を配れます
 
 ## セキュリティ / 公開ポリシー
 
+- **`/state` は3種類の見え方**に分かれます。
+  - 有効なトークン付き → そのプレイヤーの**自分の手札だけ**（他人の手札・隠し勝利点は見えない）
+  - トークンなし / 不正トークン → **観戦（公開情報のみ）**。誰の手札・隠し勝利点も含まれません
+  - **ローカルの監視画面**（`/monitor`）→ 全公開（監視の役割）。`view=monitor` を付けて要求しますが、
+    サーバーが認めるのは**ローカル（loopback）からのみ**です。IP だけでは昇格しません
+- **トークンなしの操作は拒否**されます。`roll` / `end_turn` / `build_*` / `discard` / `trade_respond` などを
+  トークンなしで送っても、ローカル以外では「この操作は外部からは行えません」で弾かれます。
+  トークンなしで許可されるのは、信頼アドレスからのホットシート（ローカル検証）だけです。
 - `?debug=1`（監視画面を操作可能にするスイッチ）は **ローカル（loopback）からのみ**有効です。
   LAN や Tailscale など、ネットワーク越しのアクセスでは無効になります。
 - 監視専用の強力な操作（`初期化` / `新しいゲーム` / `自動配置` / `資源付与`）も
@@ -126,7 +134,8 @@ python3 tests/test_build.py
 python3 tests/test_rules.py
 python3 tests/test_vp.py
 python3 tests/test_dev_reveal.py  # 勝敗後の発展カード公開
-python3 tests/test_wsgi.py       # WSGI (PythonAnywhere) 経由の E2E
+python3 tests/test_authz.py       # トークンなし/不正アクセスの拒否
+python3 tests/test_wsgi.py        # WSGI (PythonAnywhere) 経由の E2E
 ```
 
 ## 構成

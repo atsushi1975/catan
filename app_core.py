@@ -100,6 +100,25 @@ def token_to_pid(token):
     return None
 
 
+def _resolve_viewer(token, client_ip, view=None):
+    """Decide what a /state caller is allowed to see.
+
+    * a valid token  -> that player's pid (their own private view)
+    * no / bad token -> SPECTATOR_VIEW (public info only)
+    * a LOCAL monitor page (view=monitor from loopback) -> DEBUG_VIEW
+
+    The debug view is only ever handed out for the monitor page on a trusted
+    (default: loopback) address, so neither a remote visitor nor a token-less
+    player page can read hands or hidden victory points.
+    """
+    pid = token_to_pid(token)
+    if pid is not None:
+        return pid
+    if view == 'monitor' and _debug_allowed(client_ip):
+        return DEBUG_VIEW
+    return SPECTATOR_VIEW
+
+
 def game():
     return ROOM.get("g")
 
@@ -221,11 +240,24 @@ def serialize_room(token=None):
 
 # ---------------------------------------------------------------------------
 # Serialization (public / private filtering)
-#   viewer is None  -> monitor / hot-seat: everything visible
-#   viewer is a pid -> that player's private view
+#   viewer is an int pid      -> that player's private view
+#   viewer == 'spectator'     -> public information only (no token / bad token,
+#                                or a remote monitor). Anyone can get this, so it
+#                                must never leak hands or hidden victory points.
+#   viewer == 'debug'         -> everything visible. Only ever produced for a
+#                                LOCAL monitor (loopback), see route_get().
 # ---------------------------------------------------------------------------
+DEBUG_VIEW = "debug"
+SPECTATOR_VIEW = "spectator"
+
+
+def _viewer_sees_all(viewer):
+    """True when this view is the unrestricted (hot-seat / local monitor) one."""
+    return viewer is None or viewer == DEBUG_VIEW
+
+
 def serialize_player(p, viewer, reveal=False):
-    full = reveal or (viewer is None) or (p.id == viewer)
+    full = reveal or _viewer_sees_all(viewer) or (p.id == viewer)
     d = {
         "id": p.id, "name": p.name, "color": p.color,
         "hand_count": p.total_resources(),
@@ -374,7 +406,11 @@ def serialize(g, viewer=None):
         "phase": g.phase,
         "bank": {rt.value: n for rt, n in g.bank.items()},
         "current": g.current_player_idx,
-        "you": viewer,                    # which player this view belongs to (None = monitor)
+        # `you` is the viewer's player id, or null for spectators / the monitor.
+        # `role` says which of the three views this is ('player'|'spectator'|'debug').
+        "you": viewer if isinstance(viewer, int) else None,
+        "role": ("player" if isinstance(viewer, int)
+                 else (viewer if isinstance(viewer, str) else DEBUG_VIEW)),
         "turn_number": g.turn_number,
         "dice": list(g.dice),
         "winner": g.winner,
@@ -577,8 +613,15 @@ def handle_action(action, payload, actor, local=True):
     v_list = list(b.vertices.keys())
     e_list = list(b.edges.keys())
 
-    # authorization: a real client may only act on its own turn (hot-seat/monitor
-    # has actor=None and may act freely, e.g. for the automated tests).
+    # authorization
+    #   * A request with no valid token (actor is None) is only allowed to act
+    #     when it comes from a trusted/local address (the hot-seat monitor used
+    #     for local play and the automated tests). A remote tokenless request
+    #     must not be able to drive the game at all.
+    #   * A real client (actor is a pid) may only act on its own turn / its own
+    #     discard / its own trade response.
+    if actor is None and not local:
+        return {"ok": False, "error": "この操作は外部からは行えません"}
     if actor is not None and action in CURRENT_ONLY and actor != g.current_player_idx:
         return {"ok": False, "error": "not your turn"}
     if actor is not None and action == "discard" and actor != payload.get("player"):
@@ -738,7 +781,7 @@ def route_get(path, query, client_ip):
             if g is None or ROOM['phase'] != 'playing':
                 body = json.dumps({'phase': 'lobby', 'started': False}).encode()
                 return (200, 'application/json; charset=utf-8', body)
-            viewer = token_to_pid(token)
+            viewer = _resolve_viewer(token, client_ip, (query.get('view') or [None])[0])
             body = json.dumps(serialize(g, viewer)).encode()
             return (200, 'application/json; charset=utf-8', body)
 

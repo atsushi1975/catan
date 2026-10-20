@@ -94,6 +94,29 @@ Phase 2（Web UI）進行中 — Pythonバックエンド + Canvas フロント�
 - Codespaces/PythonAnywhere の手順と無料枠の注意は `README.md` に記載。
 - テスト: `tests/test_wsgi.py`（WSGI 経由の E2E。静的配信・`/env` ゲート・join/roll/pick/start・秘匿情報の絞り込み・405/404）。
 
+## 認可・情報公開の穴を修正（v18）
+
+外部公開を見据えて実測したところ、**トークンなし/不正トークン**で以下ができてしまっていた。
+
+1. `GET /state` が全員の手札・隠し勝利点を返す（`token_to_pid` が `None` を返し、`None` が「監視＝全部見える」の意味だったため）。
+2. `POST /action` でトークンなしでも手番プレイヤーの操作が通る（権限チェックが `actor is not None` の内側だけだったため。例: トークンなしの `build_settlement` が成功し残り集落が減った）。
+
+### 修正方針
+
+- `/state` の viewer を **3値**に: `pid`（本人視点）/ `'spectator'`（公開情報のみ）/ `'debug'`（全部見える）。
+  - 有効トークン → その `pid`
+  - トークンなし・不正 → `'spectator'`（`resources`/`dev_cards`/`new_dev_cards`/`hidden_vp` を出さない）
+  - `'debug'` は **`view=monitor` かつ信頼アドレス（既定は loopback）** のときだけ。ローカル監視画面のために `game.js` は `VIEW==='monitor'` のとき `?view=monitor` を付ける。
+  - `'debug'` を IP だけで与えない（＝localhost のプレイヤー用ページは昇格しない）。監視の表示は従来どおり全公開。
+  - `serialize()` の `you` は pid 以外なら `null`、`role`（`player`/`spectator`/`debug`）を追加。
+- `/action` の権限: `handle_action(..., actor=None, local=False)` は**すべてのゲーム操作を拒否**（「この操作は外部からは行えません」）。トークンなしで許すのは信頼アドレスからのホットシート/テスト操作のみ。
+- 既存の「外部からの監視専用操作（`room_init`/`monitor_new`/`auto_setup`/`give_resources`）拒否」は維持。
+
+### テスト
+
+- `tests/test_authz.py`: 段階1（トークンなし/不正の `/state` に秘匿キーが無い／ローカル監視は `debug`／IP だけでは昇格しない／`view=monitor` でも外部は `spectator`）と段階2（`roll`/`end_turn`/`buy_dev`/`build_*`/`discard`/`trade_respond` がリモートのトークンなしで拒否され、ゲーム状態が変わらない）。
+- `/tmp/opencode/test_ui24.js`: ローカル監視= `debug` で全公開、トークンなしクライアント= `spectator` で秘匿情報なし＋「観戦」表示、有効トークン= `player`。
+
 ## 勝敗確定後の発展カード公開（v18）
 
 勝者が決まったら（`winner` 確定＝`phase == "end"`）、**全員の所持発展カードを公開**する。
