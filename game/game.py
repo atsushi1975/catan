@@ -26,15 +26,18 @@ def _ja(r):
 class Game:
     COLORS = ["red", "blue", "white", "orange"]
 
-    def __init__(self, num_players=4, seed=None, names=None, desert="coast_ng"):
+    def __init__(self, num_players=4, seed=None, names=None, desert="coast_ng",
+                 numbers="official", victory_target=None):
         self.seed = seed
         self.rng = random.Random(seed)
-        self.board = Board(seed=seed, desert=desert)
+        self.board = Board(seed=seed, desert=desert, numbers=numbers)
         self.players = [
             Player(i, (names[i] if names and i < len(names) and names[i] else f"プレイヤー{i+1}"), self.COLORS[i])
             for i in range(num_players)
         ]
         self.num_players = num_players
+        # House rule: win at this many victory points (default 10).
+        self.victory_target = victory_target or VICTORY_TARGET
         self.dev_deck = create_dev_deck(seed=seed)
         # Bank supply: 19 cards of each resource. Production is all-or-nothing
         # per resource when the bank cannot cover the total demand.
@@ -603,7 +606,7 @@ class Game:
 
     def _check_win(self):
         for p in self.players:
-            if p.total_vp() >= VICTORY_TARGET:
+            if p.total_vp() >= self.victory_target:
                 if self.winner is None:
                     self.winner = p.id
                     self.phase = PHASE_END

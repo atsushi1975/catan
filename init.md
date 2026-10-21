@@ -373,3 +373,25 @@ catan/
   **操作パネル下部のログ欄**（最新20件・新しいものが上）に表示。
   ダイスの出目は盤面に常時表示されているため**トーストせずログのみ**。
 - 初回読み込み時は過去ログを一括トーストしない（ログには残す）。
+
+## v26: ハウスルール追加（勝利点・数字チップ）
+
+### 勝利点
+- ロビーのハウスルールで **10点（通常）／7点（短時間）** を選べる。
+- `settings.victory` に保存し、`Game(victory_target=...)` に渡す。勝利判定は
+  `self.victory_target` を使う（既定 10）。
+
+### 数字チップの配置
+- ロビーで **公式準拠／ランダム** を選べる。
+- `Board(numbers="official"|"random")`。
+  - `official`: ルールブック通りの螺旋配置（従来どおり）。
+  - `random`: 同じ18枚をランダムに並べるが、**6 と 8 が隣接しない／2 と 12 が隣接しない**
+    配置だけを採用（条件を満たすまで最大400回試行、満たせない場合は公式配置にフォールバック）。
+- 盤面に関わる設定を変えると地図を作り直す（ダイスの振り直しになる）。
+
+### 変更箇所
+- `game/board.py`: `numbers` モードと `_assign_numbers_random`／`_numbers_ok`
+- `game/game.py`: `victory_target` と `numbers` の受け渡し
+- `app_core.py`: `settings` に `numbers`／`victory`、`_numbers_mode()`／`_victory_target()`、
+  値バリデーション、`room_setting` の許可キー
+- `web/client.html`: ロビーに「勝利点」「数字チップ」のラジオ

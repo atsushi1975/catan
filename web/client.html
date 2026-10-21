@@ -220,6 +220,14 @@
       ['coast_ng', '海岸砂漠NG',     '砂漠は内陸（海岸以外）※既定'],
       ['none',     '固定なし',       '砂漠はどこでも（海岸もあり）'],
     ];
+    const victoryOpts = [
+      [10, '10点（通常）', '通常のカタン（10点で勝利）'],
+      [7,  '7点（短時間）', '短時間で終わる7点勝利ルール'],
+    ];
+    const numberOpts = [
+      ['official', '公式準拠', 'ルールブック通りの螺旋配置'],
+      ['random',   'ランダム',   '6-8隣接・2-12隣接を避けてランダム'],
+    ];
     html += `<div class="rules"><div class="rules-title">ハウスルール</div>
       <div class="rules-row"><span class="rules-label">初期砂漠</span><span class="rules-choices">`;
     for (const [val, label, title] of desertOpts) {
@@ -229,7 +237,23 @@
         ${label}</label>`;
     }
     html += `</span></div>
-      <div class="rules-note">※ 変更すると盤面を作り直します（ダイスの振り直しになります）</div>
+      <div class="rules-row"><span class="rules-label">勝利点</span><span class="rules-choices">`;
+    for (const [val, label, title] of victoryOpts) {
+      const checked = (Number(st.victory) || 10) === val;
+      html += `<label class="radio" title="${title}">
+        <input type="radio" name="rule-victory" value="${val}" ${checked ? 'checked' : ''}>
+        ${label}</label>`;
+    }
+    html += `</span></div>
+      <div class="rules-row"><span class="rules-label">数字チップ</span><span class="rules-choices">`;
+    for (const [val, label, title] of numberOpts) {
+      const checked = (st.numbers || 'official') === val;
+      html += `<label class="radio" title="${title}">
+        <input type="radio" name="rule-numbers" value="${val}" ${checked ? 'checked' : ''}>
+        ${label}</label>`;
+    }
+    html += `</span></div>
+      <div class="rules-note">※ 盤面に関わる変更は地図を作り直します（ダイスの振り直しになります）</div>
     </div>`;
 
     // seat list
@@ -297,6 +321,22 @@
     body.querySelectorAll('input[name="rule-desert"]').forEach(inp => {
       inp.onchange = async () => {
         const res = await act('room_setting', { key: 'desert', value: inp.value });
+        if (!res.ok) { alert(res.error || '設定を変更できませんでした'); }
+        lastKey = null;
+        renderLobby();
+      };
+    });
+    body.querySelectorAll('input[name="rule-victory"]').forEach(inp => {
+      inp.onchange = async () => {
+        const res = await act('room_setting', { key: 'victory', value: parseInt(inp.value, 10) });
+        if (!res.ok) { alert(res.error || '設定を変更できませんでした'); }
+        lastKey = null;
+        renderLobby();
+      };
+    });
+    body.querySelectorAll('input[name="rule-numbers"]').forEach(inp => {
+      inp.onchange = async () => {
+        const res = await act('room_setting', { key: 'numbers', value: inp.value });
         if (!res.ok) { alert(res.error || '設定を変更できませんでした'); }
         lastKey = null;
         renderLobby();

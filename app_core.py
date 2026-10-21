@@ -63,6 +63,8 @@ ROOM = {
     "slots": {},        # lobby draft: seat index -> chosen turn number (1..N)
     "settings": {       # house rules chosen in the lobby before the game starts
         "desert": "coast_ng",   # "center" | "coast_ng" | "none"
+        "numbers": "official",  # "official" | "random"
+        "victory": 10,          # 10 | 7
     },
 }
 LOCK = threading.RLock()
@@ -85,7 +87,7 @@ def reset_room():
         ROOM["order"] = []
         ROOM["g"] = None
         ROOM["slots"] = {}
-        ROOM["settings"] = {"desert": "coast_ng"}
+        ROOM["settings"] = {"desert": "coast_ng", "numbers": "official", "victory": 10}
 
 
 def _new_token():
@@ -175,6 +177,22 @@ def _desert_mode():
     return m if m in DESERT_MODES else "coast_ng"
 
 
+
+def _numbers_mode():
+    """House rule for number-token layout (validated, with a safe default)."""
+    m = (ROOM.get("settings") or {}).get("numbers", "official")
+    return m if m in ("official", "random") else "official"
+
+
+def _victory_target():
+    """House rule for the winning score (10 default, or 7 for a short game)."""
+    v = (ROOM.get("settings") or {}).get("victory", 10)
+    try:
+        v = int(v)
+    except (TypeError, ValueError):
+        v = 10
+    return v if v in (7, 10) else 10
+
 def _ensure_board():
     """Create the board the lobby preview shows.
 
@@ -191,7 +209,8 @@ def _ensure_board():
     if len(ROOM["seats"]) < 2:
         return None                       # nothing to decide with one player
     ROOM["g"] = Game(num_players=len(ROOM["seats"]), seed=None,
-                     desert=_desert_mode())
+                     desert=_desert_mode(), numbers=_numbers_mode(),
+                     victory_target=_victory_target())
     return ROOM["g"]
 
 
@@ -559,9 +578,18 @@ def handle_lobby(action, payload):
             s = ROOM.setdefault("settings", {})
             key = payload.get("key")
             val = payload.get("value")
-            if key in ("desert",):
-                if val not in DESERT_MODES:
+            if key in ("desert", "numbers", "victory"):
+                if key == "desert" and val not in DESERT_MODES:
                     return {"ok": False, "error": "不正な設定値です"}
+                if key == "numbers" and val not in ("official", "random"):
+                    return {"ok": False, "error": "不正な設定値です"}
+                if key == "victory":
+                    try:
+                        val = int(val)
+                    except (TypeError, ValueError):
+                        return {"ok": False, "error": "不正な設定値です"}
+                    if val not in (7, 10):
+                        return {"ok": False, "error": "不正な設定値です"}
                 s[key] = val
                 # The desert placement changes the map, so a map that is already
                 # on screen is no longer valid - drop it and regenerate it right
@@ -594,7 +622,8 @@ def handle_lobby(action, payload):
             g = _ensure_board()
             if g is None:
                 g = ROOM["g"] = Game(num_players=len(seats), seed=None, names=names,
-                                     desert=_desert_mode())
+                                     desert=_desert_mode(), numbers=_numbers_mode(),
+                                     victory_target=_victory_target())
             for i, p in enumerate(g.players):
                 p.name = names[i]
             ROOM["phase"] = "playing"
@@ -640,7 +669,7 @@ def handle_action(action, payload, actor, local=True):
             return {"ok": False, "error": "monitor only"}
         with LOCK:
             reset_room()
-            ROOM["g"] = Game(num_players=4, seed=None, desert=_desert_mode())
+            ROOM["g"] = Game(num_players=4, seed=None, desert=_desert_mode(), numbers=_numbers_mode(), victory_target=_victory_target())
             ROOM["phase"] = "playing"
         return {"ok": True}
     if ROOM["phase"] != "playing":

@@ -61,12 +61,16 @@ class Board:
     # toward the centre, skipping the desert hex.
     NUMBER_SEQUENCE = [5, 2, 6, 3, 8, 10, 9, 12, 11, 4, 8, 10, 9, 4, 5, 6, 3, 11]
 
-    def __init__(self, seed=None, desert="coast_ng"):
+    def __init__(self, seed=None, desert="coast_ng", numbers="official"):
         import random
         rng = random.Random(seed)
         self.seed = seed
         self.rng = rng
         self.desert_mode = desert          # "center" | "coast_ng" | "none"
+        # How the number tokens are placed:
+        #   "official" - the spiral order from the rulebook (default)
+        #   "random"   - shuffled, but never 6 next to 8, nor 2 next to 12
+        self.numbers_mode = numbers        # "official" | "random"
         self.hexes = {}  # (q,r) -> Hex
         self.vertices = {}  # vertex_key -> {hexes, building, owner}
         self.edges = {}  # edge_key -> {hexes, road_owner}
@@ -231,7 +235,13 @@ class Board:
                 self.hexes[key] = Hex(key[0], key[1], terrains[ti])
                 ti += 1
 
+    # pairs of numbers that must not sit on adjacent hexes
+    _FORBIDDEN_ADJACENT = ((6, 8), (2, 12))
+
     def _assign_numbers(self, rng):
+        if getattr(self, "numbers_mode", "official") == "random":
+            self._assign_numbers_random(rng)
+            return
         # Official layout: the 18 numbers are placed in spiral order from a
         # corner of the island, counterclockwise, skipping the desert.
         spiral = self._spiral(corner=rng.randrange(6))
@@ -243,6 +253,46 @@ class Board:
                 continue
             h.number = seq[si]
             si += 1
+
+    def _assign_numbers_random(self, rng):
+        """Random number layout (house rule).
+
+        The same 18 tokens are shuffled at random, but a layout is rejected
+        while any forbidden pair (6 next to 8, or 2 next to 12) is adjacent.
+        This keeps the map fair enough to play on. A bounded retry keeps the
+        call cheap; the spiral layout is used as a guaranteed-good fallback.
+        """
+        empty = [k for k, h in self.hexes.items() if h.terrain != TerrainType.DESERT]
+        for _ in range(400):
+            seq = list(self.NUMBER_SEQUENCE)
+            rng.shuffle(seq)
+            if self._numbers_ok(empty, seq):
+                for key, num in zip(empty, seq):
+                    self.hexes[key].number = num
+                return
+        # Fallback: official layout (always satisfies the constraints).
+        spiral = self._spiral(corner=rng.randrange(6))
+        seq = list(self.NUMBER_SEQUENCE)
+        si = 0
+        for key in spiral:
+            h = self.hexes[key]
+            if h.terrain == TerrainType.DESERT:
+                continue
+            h.number = seq[si]
+            si += 1
+
+    def _numbers_ok(self, keys, seq):
+        """True when no forbidden pair sits on two adjacent hexes."""
+        placed = dict(zip(keys, seq))
+        forbidden = getattr(self, "_FORBIDDEN_ADJACENT", ((6, 8), (2, 12)))
+        for (q, r), num in placed.items():
+            for nb in self.neighbors_hex(q, r):
+                other = placed.get((nb.q, nb.r))
+                if other is None:
+                    continue
+                if (num, other) in forbidden or (other, num) in forbidden:
+                    return False
+        return True
 
     def _build_graph(self):
         # Build vertices and edges using rounded world coords as keys
