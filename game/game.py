@@ -14,6 +14,15 @@ PHASE_ROLL = "roll"
 PHASE_MAIN = "main"
 PHASE_END = "end"
 
+# Japanese resource labels, matching the client's RES_LABEL so the event log
+# reads the same everywhere.
+RES_JA = {"wood": "木", "brick": "土", "sheep": "羊", "wheat": "麦", "ore": "鉄"}
+
+
+def _ja(r):
+    return RES_JA.get(getattr(r, "value", r), getattr(r, "value", r))
+
+
 class Game:
     COLORS = ["red", "blue", "white", "orange"]
 
@@ -55,6 +64,22 @@ class Game:
         self.longest_road_length = 4  # minimum 5 roads to qualify (length edges)
         self.largest_army_owner = None
         self.largest_army_count = 2  # minimum 3 knights
+        # Public event log. Every entry is information that is open at a real
+        # table (dev cards played, the robber, longest road / largest army,
+        # the win, ...). Clients diff by `id` to raise a toast / append a log
+        # line. `text` is already localised for the UI.
+        self.events = []
+        self._event_id = 0
+
+    def add_event(self, text, kind="info"):
+        """Append one public event and return it."""
+        self._event_id += 1
+        ev = {"id": self._event_id, "kind": kind, "text": text}
+        self.events.append(ev)
+        # Keep the list bounded; the UI only needs recent history.
+        if len(self.events) > 60:
+            del self.events[:-60]
+        return ev
 
     def current_player(self):
         return self.players[self.current_player_idx]
@@ -172,9 +197,12 @@ class Game:
             d2 = self.rng.randint(1, 6)
             total = d1 + d2
         self.dice = (d1, d2)
+        roller = self.current_player().name
         if total == 7:
+            self.add_event(f"{roller} が 7 を出しました（盗賊を移動）", "seven")
             self._handle_seven()
         else:
+            self.add_event(f"{roller} が {d1}+{d2} = {total} を出しました", "roll")
             self._distribute_resources(total)
         self.phase = PHASE_MAIN
         return total
@@ -289,6 +317,11 @@ class Game:
                 rt = self.rng.choice(avail)
                 victim.resources[rt] -= 1
                 thief.resources[rt] += 1
+                self.add_event(f"{thief.name} が盗賊を ({q},{r}) に移動し、{victim.name} から 1 枚奪いました", "robber")
+            else:
+                self.add_event(f"{thief.name} が盗賊を ({q},{r}) に移動しました（{victim.name} は手札なし）", "robber")
+        else:
+            self.add_event(f"{self.current_player().name} が盗賊を ({q},{r}) に移動しました", "robber")
         return True
 
     # ---------- Building ----------
@@ -429,6 +462,7 @@ class Game:
         p.played_dev_this_turn = True
         if card_type == DevCardType.KNIGHT.value:
             p.knights_played += 1
+            self.add_event(f"{p.name} が騎士カードを使いました（盗賊を移動）", "knight")
             # knight always requires moving the robber
             self.robber_pending = True
             self.trade_offer = None  # any open offer is void once the robber is in play
@@ -440,13 +474,17 @@ class Game:
             self._check_win()
         elif card_type == DevCardType.ROAD_BUILDING.value:
             p.free_roads += 2
+            self.add_event(f"{p.name} が街道建設カードを使いました（街道2本まで無料）", "road_building")
         elif card_type == DevCardType.YEAR_OF_PLENTY.value:
+            got = []
             for key in ("r1", "r2"):
                 r = kwargs.get(key)
                 if r:
                     rt = ResourceType(r)
                     if self._bank_take(rt, 1):  # take from the bank if available
                         p.gain(rt)
+                        got.append(rt.value)
+            self.add_event(f"{p.name} が収穫カードを使いました（{', '.join(_ja(x) for x in got) or '—'} を獲得）", "year_of_plenty")
         elif card_type == DevCardType.MONOPOLY.value:
             rt = kwargs.get("resource")
             if rt:
@@ -458,6 +496,7 @@ class Game:
                         other.resources[rt_enum] = 0
                         total += amt
                 p.resources[rt_enum] += total
+                self.add_event(f"{p.name} が独占カードを使いました（{_ja(rt_enum)} を {total} 枚獲得）", "monopoly")
         elif card_type == DevCardType.VICTORY_POINT.value:
             pass  # already counted
         return True
@@ -506,6 +545,7 @@ class Game:
                 self.longest_road_owner = p.id
                 p.longest_road = True
                 p.vp += VP_LONGEST_ROAD
+                self.add_event(f"{p.name} が最長交易路を獲得しました（長さ {length}）", "longest_road")
                 self._check_win()
             elif length == self.longest_road_length and self.longest_road_owner is not None and self.longest_road_owner != p.id:
                 # tie: original keeper keeps it (standard rule: must exceed)
@@ -556,6 +596,7 @@ class Game:
                 self.largest_army_owner = p.id
                 p.largest_army = True
                 p.vp += VP_LARGEST_ARMY
+                self.add_event(f"{p.name} が最大騎士力を獲得しました（騎士 {p.knights_played} 枚）", "largest_army")
                 self._check_win()
             elif p.knights_played == self.largest_army_count and self.largest_army_owner is not None and self.largest_army_owner != p.id:
                 pass  # tie keeps original
@@ -563,8 +604,10 @@ class Game:
     def _check_win(self):
         for p in self.players:
             if p.total_vp() >= VICTORY_TARGET:
-                self.winner = p.id
-                self.phase = PHASE_END
+                if self.winner is None:
+                    self.winner = p.id
+                    self.phase = PHASE_END
+                    self.add_event(f"🏆 {p.name} が {p.total_vp()} 点で勝利しました！", "win")
                 return
 
     def player_port_ratio(self, player, resource=None):

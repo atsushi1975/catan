@@ -435,6 +435,78 @@ let pendingDiscardPid = null;
 
 const phaseJa = {setup:'初期配置', roll:'サイコロ', main:'建設・交易', end:'終了'};
 
+// ---------------------------------------------------------------------------
+// Public event log + toasts
+//   The server sends `events` (open information: dev cards played, the robber,
+//   longest road / largest army, the win, ...). Clients only show events they
+//   have not shown yet (`seenEventId`). A new event raises a short toast near
+//   the centre of the screen AND is appended to the log panel.
+// ---------------------------------------------------------------------------
+let seenEventId = null;       // highest event id already handled (null = first load)
+let logLines = [];            // recent events, newest last
+const LOG_MAX = 20;
+
+function pushLog(ev) {
+  logLines.push({ id: ev.id, kind: ev.kind || 'info', text: ev.text || '' });
+  if (logLines.length > LOG_MAX) logLines = logLines.slice(-LOG_MAX);
+}
+
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g,
+    c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+}
+
+function renderEventLog() {
+  const el = document.getElementById('event-log');
+  if (!el) return;
+  if (!logLines.length) { el.innerHTML = '<div class="muted" style="font-size:12px;">まだ何もありません</div>'; return; }
+  el.innerHTML = logLines.slice().reverse().map(l =>
+    '<div class="log-line kind-' + l.kind + '">' + escapeHtml(l.text) + '</div>').join('');
+}
+
+// A toast near the centre of the screen; fades out on its own.
+function showToast(text, kind) {
+  let host = document.getElementById('toast-host');
+  if (!host) {
+    host = document.createElement('div');
+    host.id = 'toast-host';
+    document.body.appendChild(host);
+  }
+  const t = document.createElement('div');
+  t.className = 'toast kind-' + (kind || 'info');
+  t.textContent = text;
+  host.appendChild(t);
+  void t.offsetWidth;
+  t.classList.add('show');
+  setTimeout(() => {
+    t.classList.remove('show');
+    setTimeout(() => { if (t.parentNode) t.parentNode.removeChild(t); }, 400);
+  }, 3200);
+}
+
+// Called on every /state poll. Shows anything new since the last poll.
+function handleEvents(events) {
+  if (!Array.isArray(events)) return;
+  if (seenEventId === null) {
+    // First load: fill the log with history, but do NOT toast the whole back-log.
+    for (const ev of events) pushLog(ev);
+    if (events.length) seenEventId = events[events.length - 1].id;
+    renderEventLog();
+    return;
+  }
+  for (const ev of events) {
+    if (ev.id > seenEventId) {
+      pushLog(ev);
+      // The dice are always drawn on the board, so a throw does not need a
+      // toast - it would just be noise. It still goes into the log.
+      if (ev.kind !== 'roll') showToast(ev.text, ev.kind);
+    }
+  }
+  if (events.length) seenEventId = Math.max(seenEventId, events[events.length - 1].id);
+  renderEventLog();
+}
+
+
 function api(path) {
   let url = path;
   const params = [];
@@ -464,6 +536,29 @@ async function getState() {
     return;
   }
   state = raw;
+  // Stale / missing token while a game is running: our seat no longer exists
+  // (e.g. the room was reset or the server restarted). There is nothing we can
+  // do on this screen - go back to the lobby so the player can rejoin.
+  //
+  // Guard with a flag that SURVIVES the reload: without it this would reload the
+  // page, boot straight back into the still-running game and loop forever.
+  if (VIEW === 'client' && (state.you === null || state.you === undefined)) {
+    let warned = false;
+    try { warned = sessionStorage.getItem('catan_stale_warned') === '1'; } catch (e) {}
+    if (!warned) {
+      try { sessionStorage.setItem('catan_stale_warned', '1'); } catch (e) {}
+      alert('接続が切れました（席が見つかりません）。もう一度入室してください。');
+    }
+    // Forget the dead token so the lobby offers the join form instead of
+    // bouncing back into the game we can no longer take part in.
+    try {
+      const t = JSON.parse(localStorage.getItem('catan_tokens') || '{}') || {};
+      delete t[sessionStorage.getItem('catan_tabid')];
+      localStorage.setItem('catan_tokens', JSON.stringify(t));
+    } catch (e) {}
+    location.reload();
+    return;
+  }
   // Tab title follows the player's own name while the game is running
   // (set again on every poll so it can never stay at the default).
   if (VIEW === 'client' && state.you !== null && state.you !== undefined &&
@@ -483,6 +578,7 @@ async function getState() {
   updateSidebar();
   updatePanels();
   updateMobileToggle();
+  handleEvents(state.events);
 }
 async function post(action, extra={}) {
   const body = Object.assign({action}, extra);
@@ -1447,6 +1543,8 @@ function sidebarHTML() {
       <div id="dev-params" style="display:none;margin:4px 0;"></div>
       <button class="btn" id="btn-playdev">選んだカードを使う</button>
     </div>
+    <h2>ログ</h2>
+    <div id="event-log"></div>
     </div>`;
 }
 

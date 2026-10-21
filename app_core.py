@@ -441,6 +441,10 @@ def serialize(g, viewer=None):
         "robber_victims": robber_victims,
         "trade_ratios": trade_ratios,
         "trade_offer": trade_offer,
+        # Public event log (dev cards played, the robber, longest road / largest
+        # army, the win, ...). Same text for every viewer: it never contains
+        # hidden information. Clients diff by `id` to toast / append to the log.
+        "events": list(getattr(g, "events", [])),
         "valid": {
             "roads": valid_roads,
             "settlements": valid_settlements,

@@ -80,8 +80,41 @@
 <script src="game.js"></script>
 <script>
 (function () {
-  const KEY = 'catan_token';
-  let token = sessionStorage.getItem(KEY) || null;
+  // ---- token storage -------------------------------------------------------
+  // Phones discard backgrounded tabs after a long idle and clear sessionStorage
+  // with them, which used to leave the player with NO token after coming back:
+  // the client then looked like a spectator and could never act again.
+  //
+  // So the tokens live in localStorage (survives tab discard / browser restart),
+  // but each TAB keeps its own token via a per-tab id stored in sessionStorage
+  // (a tab that is discarded keeps its id, so it still finds its token). This
+  // keeps two tabs on one PC as two different players, like before.
+  const TABKEY = 'catan_tabid';
+  const TKEY = 'catan_tokens';
+  function tabId() {
+    let t = null;
+    try { t = sessionStorage.getItem(TABKEY); } catch (e) {}
+    if (!t) {
+      t = 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+      try { sessionStorage.setItem(TABKEY, t); } catch (e) {}
+    }
+    return t;
+  }
+  function readTokens() {
+    try { return JSON.parse(localStorage.getItem(TKEY) || '{}') || {}; }
+    catch (e) { return {}; }
+  }
+  function getToken() {
+    const m = readTokens();
+    return m[tabId()] || null;
+  }
+  function setToken(t) {
+    const m = readTokens();
+    if (t) m[tabId()] = t; else delete m[tabId()];
+    try { localStorage.setItem(TKEY, JSON.stringify(m)); } catch (e) {}
+  }
+
+  let token = getToken();
   let booted = false;
 
   function q(path) {
@@ -121,9 +154,44 @@
     }
   }
 
+  // A game is already running but this browser has no seat in it (the phone
+  // dropped our token while the tab was discarded, or we are a new visitor).
+  // The server does not allow joining mid-game, so show the lobby with a clear
+  // explanation instead of an unusable board.
+  function renderPlayingNotice(r) {
+    const body = document.getElementById('lobby-body');
+    const seats = (r.seats || []).map(s => esc(s.name)).join('、');
+    body.innerHTML = `<div class="muted">ゲーム進行中です（参加者: ${seats || '—'}）</div>
+      <div class="order" style="color:#ffd54f;margin-top:8px;">
+        このブラウザはこのゲームの席を持っていません。<br>
+        放置などで接続が切れた場合、進行中のゲームには途中参加できません。<br>
+        続けるには、だれかが監視画面から「ゲームを初期化」してロビーに戻してください。
+      </div>
+      <div style="margin-top:12px;">
+        <button class="btn" id="btn-reload">再読み込み</button>
+        <a class="btn" href="/monitor" target="_blank" style="text-decoration:none;">監視画面を開く</a>
+      </div>`;
+    body.dataset.built = '1';
+    lastKey = null;
+    const b = document.getElementById('btn-reload');
+    if (b) b.onclick = () => location.reload();
+  }
+
   async function renderLobby() {
     const r = await room();
-    if (r.phase === 'playing') { showGame(r); return; }
+    // A game is running. Only a player whose token still maps to a seat may
+    // enter the board; anyone else (lost token after the phone discarded the
+    // tab, or a fresh visitor) stays in the lobby. Joining mid-game is not
+    // allowed by the server, so there is nothing useful to show them anyway.
+    if (r.phase === 'playing') {
+      const hasSeat = token && r.you_seat !== null && r.you_seat !== undefined;
+      if (hasSeat) { showGame(r); return; }
+      // The token no longer maps to a seat: forget it so a later reload shows
+      // the plain join form (and the notice below is not shown forever).
+      if (token) { setToken(null); token = null; }
+      renderPlayingNotice(r);
+      return;
+    }
 
     const body = document.getElementById('lobby-body');
     const key = JSON.stringify(r);
@@ -241,8 +309,11 @@
       document.getElementById('btn-join').onclick = async () => {
         const name = (document.getElementById('name-input').value || '').trim() || null;
         const res = await act('join', { name });
-        if (res.ok) { token = res.token; sessionStorage.setItem(KEY, token); lastKey = null; renderLobby(); }
-        else alert(res.error || '入室できませんでした');
+        if (res.ok) {
+          token = res.token; setToken(token); lastKey = null;
+          try { sessionStorage.removeItem('catan_stale_warned'); } catch (e) {}
+          renderLobby();
+        } else alert(res.error || '入室できませんでした');
       };
     } else {
       document.getElementById('btn-roll-room').onclick = async () => {
@@ -262,7 +333,7 @@
         if (!res.ok) { alert(res.error || '退出できませんでした'); return; }
         // Leave the seat on the server first, then forget the token locally so
         // the next load shows the (empty) name field.
-        sessionStorage.removeItem(KEY); token = null; location.reload();
+        setToken(null); token = null; location.reload();
       };
     }
     // turn-slot draft
