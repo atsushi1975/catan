@@ -229,7 +229,7 @@
   let booted = false;
   let lastRecoverTry = 0;
   let lastRoom = null;      // last successful /room answer, for diagLine()
-  const VERSION = 'v32';   // shown by diagLine(); bump whenever the client changes
+  const VERSION = 'v33';   // shown by diagLine(); bump whenever the client changes
   beat();
   setInterval(beat, 5000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) beat(); });
@@ -272,11 +272,19 @@
     try { n = Object.keys(readTokens()).length; } catch (e) {}
     let seat = 'n';
     try { seat = lastSeat().token ? 'y' : 'n'; } catch (e) {}
+    let side = '?';
+    try {
+      const sb = document.getElementById('sidebar');
+      side = sb ? (getComputedStyle(sb).display || '?') : 'none*';
+    } catch (e) {}
     d.textContent = VERSION + ' | token:' + (token ? 'y' : 'n') +
       ' | saved:' + n + ' | seat:' + seat + ' | tab:' + tab +
       ' | ph:' + (lastRoom ? lastRoom.phase : '-') +
       ' | ys:' + (lastRoom && lastRoom.you_seat !== null && lastRoom.you_seat !== undefined ? lastRoom.you_seat : '-') +
-      ' | boot:' + (booted ? 1 : 0);
+      ' | boot:' + (booted ? 1 : 0) +
+      ' | w:' + window.innerWidth +
+      ' | side:' + side +
+      ' | cls:' + (document.body.className || '-');
   }
 
   function q(path) {
