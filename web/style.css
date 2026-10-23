@@ -35,10 +35,11 @@ h2 { margin: 8px 0; font-size: 16px; }
      board filled the whole display and the panel was unreachable).
      --app-h is set from window.innerHeight / visualViewport in client.html. */
   #layout { flex-direction: column; height: 100vh; height: var(--app-h, 100dvh); }
-  #board-wrap { flex: 1 1 auto; min-height: 0; }
+  /* Keep enough space for the dice at the top even when the action sheet opens */
+  #board-wrap { flex: 1 1 50%; min-height: 35vh; }
   /* the sidebar is a bottom sheet: the bar is always visible, the body opens */
   #sidebar {
-    flex: none; width: 100%; max-height: 60vh; overflow-y: auto;
+    flex: none; width: 100%; max-height: 45vh; overflow-y: auto;
     padding: 0; background: #1e1e1e;
     border-top: 1px solid #444; box-sizing: border-box;
     -webkit-overflow-scrolling: touch;
