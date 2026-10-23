@@ -371,19 +371,36 @@ function _portGeom(pe) {
     nx = -nx; ny = -ny;
   }
   const L = Math.max(9, scale * 0.5);         // pier length
-  const r = Math.max(9, scale * 0.28);        // mark radius
+  const r = Math.max(11, scale * 0.3);        // white token radius
   const gap = Math.max(2, scale * 0.10);
-  const tip = {x: mid.x + nx * (L + gap + r), y: mid.y + ny * (L + gap + r)};
-  return {p1, p2, mid, nx, ny, L, r, tip};
+  const fs = Math.max(10, Math.round(scale * 0.22));   // ratio text size
+  const textGap = Math.max(2, scale * 0.05);
+  // The ratio is printed under the token (above it for ports that point up, so
+  // it never lands on the island). Pull the token inwards - i.e. shorten the
+  // pier - when the text would otherwise leave the visible canvas.
+  const need = r + textGap + fs + 3;
+  let d = L + gap + r;
+  if (ny < -0.2) d = Math.min(d, (mid.y - need) / -ny);
+  else if (ny > 0.2) d = Math.min(d, (canvas.height - need - mid.y) / ny);
+  d = Math.max(r + 4, d);
+  const textAbove = ny < -0.2;
+  const tip = {x: mid.x + nx * d, y: mid.y + ny * d};
+  const textTop = textAbove ? tip.y - r - textGap - fs : tip.y + r + textGap;
+  return {p1, p2, mid, nx, ny, L: Math.max(4, d - gap - r), r, fs,
+          textTop, textAbove, tip};
 }
 
 function _portMarkBoxes(b) {
   const boxes = [];
   for (const pe of (b.port_edges || [])) {
     const g = _portGeom(pe);
-    // a little slack so a die never touches the icon's stroke
-    const r = g.r * 1.1;
-    boxes.push({ x1: g.tip.x - r, y1: g.tip.y - r, x2: g.tip.x + r, y2: g.tip.y + r });
+    const r = g.r * 1.1;   // slack so a die never touches the token's rim
+    boxes.push({
+      x1: g.tip.x - r,
+      y1: Math.min(g.tip.y - r, g.textTop),
+      x2: g.tip.x + r,
+      y2: Math.max(g.tip.y + r, g.textTop + g.fs),
+    });
   }
   return boxes;
 }
@@ -903,12 +920,12 @@ function _markShadow() {
   ctx.shadowBlur = Math.max(2, scale * 0.05);
 }
 
-function drawShipIcon(x, y, s) {
+function drawShipIcon(x, y, s, flat) {
   ctx.save();
   ctx.translate(x, y);
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
-  _markShadow();
+  if (flat) { ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; } else _markShadow();
   const lw = Math.max(1, s * 0.14);
   // hull
   ctx.beginPath();
@@ -923,7 +940,8 @@ function drawShipIcon(x, y, s) {
   ctx.strokeStyle = '#fff';
   ctx.lineWidth = lw;
   ctx.stroke();
-  // mast
+  // mast (grey: white vanished against the white port token)
+  ctx.strokeStyle = '#9e9e9e';
   ctx.beginPath();
   ctx.moveTo(0, s * 0.12);
   ctx.lineTo(0, -s * 1.0);
@@ -942,12 +960,12 @@ function drawShipIcon(x, y, s) {
 }
 
 // kind: wood / brick / sheep / wheat / ore
-function drawResourceIcon(kind, x, y, s) {
+function drawResourceIcon(kind, x, y, s, flat) {
   ctx.save();
   ctx.translate(x, y);
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
-  _markShadow();
+  if (flat) { ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; } else _markShadow();
   const lw = Math.max(1, s * 0.12);
   if (kind === 'wood') {
     // two logs lying side by side (pale cut faces to the left): a single log
@@ -1063,8 +1081,9 @@ function drawResourceIcon(kind, x, y, s) {
       ctx.lineWidth = Math.max(1, lw * 0.6);
       ctx.stroke();
     };
-    bar(s * 0.26, -s * 0.02, s * 0.62, s * 0.33);   // back bar (upper right)
-    bar(-s * 0.2, s * 0.34, s * 0.78, s * 0.45);    // front bar (lower left)
+    // identical bars (a smaller back one looked like forced perspective)
+    bar(s * 0.2, s * 0.02, s * 0.66, s * 0.42);     // back bar (upper right)
+    bar(-s * 0.2, s * 0.42, s * 0.66, s * 0.42);    // front bar (lower left)
   }
   ctx.restore();
 }
@@ -1165,15 +1184,18 @@ function render() {
     if (h.number) {
       // Beige token, closer to the original cardboard chip (it used to be a
       // white disc, which read as "screen" rather than "piece").
+      // Sized from `scale` so it stays proportional on a phone (it used to be
+      // a fixed 19 px, which read too small next to the hexes).
+      const chipR = Math.max(20, Math.round(scale * 0.34));
       ctx.fillStyle = '#e3d4ac';
-      ctx.beginPath(); ctx.arc(cc.x, cc.y - 2, 19, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(cc.x, cc.y - 2, chipR, 0, Math.PI*2); ctx.fill();
       ctx.strokeStyle = (h.number===6||h.number===8) ? '#c00' : '#5b4a2a';
-      ctx.lineWidth = 3;
-      ctx.beginPath(); ctx.arc(cc.x, cc.y - 2, 19, 0, Math.PI*2); ctx.stroke();
+      ctx.lineWidth = Math.max(3, chipR * 0.14);
+      ctx.beginPath(); ctx.arc(cc.x, cc.y - 2, chipR, 0, Math.PI*2); ctx.stroke();
       ctx.fillStyle = '#f0e5c8';
-      ctx.beginPath(); ctx.arc(cc.x, cc.y - 2, 13, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(cc.x, cc.y - 2, chipR * 0.7, 0, Math.PI*2); ctx.fill();
       ctx.fillStyle = (h.number===6||h.number===8) ? '#c00' : '#000';
-      ctx.font = 'bold 16px sans-serif';
+      ctx.font = `bold ${Math.max(17, Math.round(scale * 0.3))}px sans-serif`;
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText(h.number, cc.x, cc.y - 2);
     }
@@ -1254,12 +1276,43 @@ function drawPorts(b) {
   ctx.restore();
 }
 
-// Drawn last (on top of roads/buildings) so a port mark is never hidden.
+// The printed port disc: white token + symbol, ratio written underneath
+// (like the board game's harbour tokens).
+function drawPortToken(type, x, y, r) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fillStyle = '#f7f3e6';
+  ctx.fill();
+  ctx.strokeStyle = '#5d4037';
+  ctx.lineWidth = Math.max(1.5, r * 0.1);
+  ctx.stroke();
+  ctx.restore();
+  if (type === 'generic') drawShipIcon(x, y, r * 0.62, true);
+  else drawResourceIcon(type, x, y, r * 0.58, true);
+}
+
+function drawPortRatio(type, x, top, fs) {
+  const txt = type === 'generic' ? '3:1' : '2:1';
+  ctx.save();
+  ctx.font = `bold ${fs}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = Math.max(2.5, fs * 0.34);
+  ctx.strokeStyle = 'rgba(0,0,0,0.75)';
+  ctx.strokeText(txt, x, top);
+  ctx.fillStyle = '#fff';
+  ctx.fillText(txt, x, top);
+  ctx.restore();
+}
+
+// Drawn last (on top of roads/buildings) so a port token is never hidden.
 function drawPortLabels(b) {
   for (const pe of (b.port_edges || [])) {
     const g = _portGeom(pe);
-    if (pe.type === 'generic') drawShipIcon(g.tip.x, g.tip.y, g.r * 0.8);
-    else drawResourceIcon(pe.type, g.tip.x, g.tip.y, g.r * 0.75);
+    drawPortToken(pe.type, g.tip.x, g.tip.y, g.r);
+    drawPortRatio(pe.type, g.tip.x, g.textTop, g.fs);
   }
 }
 
@@ -2100,9 +2153,10 @@ window.CatanGame = {
   _debugDrawDie: (px, py, side, value) => drawDie(px, py, side, value),
   _debugDrawDice: () => drawDice(),
   // test hooks: one port mark (ship for "generic", else a resource)
-  _debugDrawPortIcon: (type, px, py, s) => {
-    if (type === 'generic') drawShipIcon(px, py, s);
-    else drawResourceIcon(type, px, py, s);
+  _debugDrawPortIcon: (type, px, py, r) => {
+    const fs = Math.max(10, Math.round(scale * 0.22));
+    drawPortToken(type, px, py, r);
+    drawPortRatio(type, px, py + r + Math.max(2, scale * 0.05), fs);
   },
   // test hooks: geometry used to keep the dice clear of the ports
   _debugPortMarkBoxes: () => _portMarkBoxes(state.board || {}),
