@@ -377,11 +377,15 @@ function _portGeom(pe) {
   const textGap = Math.max(2, scale * 0.05);
   // The ratio is printed under the token (above it for ports that point up, so
   // it never lands on the island). Pull the token inwards - i.e. shorten the
-  // pier - when the text would otherwise leave the visible canvas.
-  const need = r + textGap + fs + 3;
+  // pier - when the text would otherwise leave the visible canvas (top/bottom
+  // and left/right). The rightmost port of the middle row used to get cut off.
+  const needV = r + textGap + fs + 3;
+  const needH = r + fs * 0.8 + 4;
   let d = L + gap + r;
-  if (ny < -0.2) d = Math.min(d, (mid.y - need) / -ny);
-  else if (ny > 0.2) d = Math.min(d, (canvas.height - need - mid.y) / ny);
+  if (ny < -0.2) d = Math.min(d, (mid.y - needV) / -ny);
+  else if (ny > 0.2) d = Math.min(d, (canvas.height - needV - mid.y) / ny);
+  if (nx > 0.2) d = Math.min(d, (canvas.width - needH - mid.x) / nx);
+  else if (nx < -0.2) d = Math.min(d, (mid.x - needH) / -nx);
   d = Math.max(r + 4, d);
   const textAbove = ny < -0.2;
   const tip = {x: mid.x + nx * d, y: mid.y + ny * d};
@@ -411,23 +415,31 @@ function _overlaps(box, other) {
            box.y2 + m < other.y1 || box.y1 - m > other.y2);
 }
 
-// Where the 2-dice group goes (centre), kept clear of the port labels.
-function dicePlacement() {
-  const half = SEA_HALF * scale;
-  const cx = canvas.width / 2, cy = canvas.height / 2;
-  const side = Math.max(18, scale * 0.8);
+// Where the 2-dice group goes (centre), kept clear of the port labels AND the
+// island. The old version only knew about ports and tried 12 hand-picked spots,
+// so when the top-right corner happened to hold a port the dice jumped a long
+// way across the board - and on a phone (where the sea is clipped) they could
+// sit on the land. Now we scan the visible sea, prefer the spot nearest the
+// top-right corner, and shrink the dice a little if nothing fits.
+function _hexMarkBoxes(b) {
+  const boxes = [];
+  for (const h of (b.hexes || [])) {
+    const c = toCanvas(hexCenter(h.q, h.r));
+    // Circumscribed square of the hex (half = one hex radius) is plenty:
+    // the dice are never allowed to touch the island.
+    boxes.push({ x1: c.x - scale, y1: c.y - scale, x2: c.x + scale, y2: c.y + scale });
+  }
+  return boxes;
+}
+
+function _diceScan(side, half, cx, cy, labels, hexes) {
   const gap = side * 0.28;
   const groupW = side * 2 + gap;
   const groupH = side;
   const pad = side * 0.4;
-  const labels = _portMarkBoxes(state.board || {});
-  // The sea square is CENTRED in the canvas (see drawSea), so the dice must be
-  // placed relative to the sea, not to the canvas.
-  // BUT the sea is often TALLER than the canvas (scale is limited by height:
-  // height/10 vs a sea of 11.2 units), so its top edge lies ABOVE the visible
-  // area. Measuring from the sea alone therefore clipped the top of the dice -
-  // most visibly when the action panel shrank the board. Keep the dice inside
-  // the intersection of the sea and the canvas.
+  // The sea square is CENTRED in the canvas (see drawSea), but the sea is often
+  // TALLER than the canvas, so its top edge lies above the visible area. Keep
+  // the dice inside the intersection of the sea and the canvas.
   const sea = {
     x1: Math.max(cx - half, pad),
     y1: Math.max(cy - half, pad),
@@ -438,28 +450,59 @@ function dicePlacement() {
   const maxX = sea.x2 - groupW / 2;
   const minY = sea.y1 + groupH / 2;
   const maxY = sea.y2 - groupH / 2;
-  const clamp = (v, lo, hi) => (lo > hi ? (lo + hi) / 2 : Math.min(hi, Math.max(lo, v)));
-  // Top-right corner of the sea square, then nudge left and down away from the
-  // port labels. The top of the board is the safest place: nothing else lives
-  // there and the dice can never be clipped by the bottom edge.
-  const right = clamp(sea.x2 - pad - groupW / 2, minX, maxX);
-  const top = clamp(sea.y1 + pad + groupH / 2, minY, maxY);
-  const cands = [];
-  for (const dy of [0, side * 1.3, side * 2.6]) {
-    for (const dx of [0, -side * 1.3, -side * 2.6, -side * 3.9]) {
-      cands.push({
-        x: clamp(right + dx, minX, maxX),
-        y: clamp(top + dy, minY, maxY),
-      });
+  if (minX > maxX || minY > maxY) return null;
+  const step = Math.max(6, side * 0.5);
+  const cols = Math.max(1, Math.floor((maxX - minX) / step));
+  const rows = Math.max(1, Math.floor((maxY - minY) / step));
+  let best = null, bestD = Infinity;
+  for (let iy = 0; iy <= rows; iy++) {
+    const y = Math.min(maxY, minY + iy * step);
+    for (let ix = 0; ix <= cols; ix++) {
+      const x = Math.max(minX, maxX - ix * step);   // start at the right edge
+      const box = { x1: x - groupW/2, y1: y - groupH/2,
+                    x2: x + groupW/2, y2: y + groupH/2 };
+      if (labels.some(l => _overlaps(box, l))) continue;
+      if (hexes.some(h => _overlaps(box, h))) continue;
+      const d = (maxX - x) * (maxX - x) + (minY - y) * (minY - y);
+      if (d < bestD) { bestD = d; best = { x, y }; }
     }
   }
-  let spot = cands[0];
-  for (const c of cands) {
-    const box = { x1: c.x - groupW/2, y1: c.y - groupH/2, x2: c.x + groupW/2, y2: c.y + groupH/2 };
-    if (!labels.some(l => _overlaps(box, l))) { spot = c; break; }
+  if (!best) return null;
+  const box = { x1: best.x - groupW/2, y1: best.y - groupH/2,
+                x2: best.x + groupW/2, y2: best.y + groupH/2 };
+  return { x: best.x, y: best.y, side, gap, groupW, groupH, box };
+}
+
+function dicePlacement() {
+  const half = SEA_HALF * scale;
+  const cx = canvas.width / 2, cy = canvas.height / 2;
+  const baseSide = Math.max(18, scale * 0.8);
+  const labels = _portMarkBoxes(state.board || {});
+  const hexes = _hexMarkBoxes(state.board || {});
+  let p = null;
+  // Shrink up to 3 times (0.85 each) so the dice still fit when the visible sea
+  // is tiny (phone with the action sheet open).
+  for (let i = 0; i < 4 && !p; i++) {
+    p = _diceScan(baseSide * Math.pow(0.85, i), half, cx, cy, labels, hexes);
   }
-  const box = { x1: spot.x - groupW/2, y1: spot.y - groupH/2, x2: spot.x + groupW/2, y2: spot.y + groupH/2 };
-  return { x: spot.x, y: spot.y, side, gap, groupW, groupH, box, labels };
+  if (p) return { x: p.x, y: p.y, side: p.side, gap: p.gap,
+                  groupW: p.groupW, groupH: p.groupH, box: p.box, labels };
+  // Nothing free at all: keep the old top-right corner rather than hide the
+  // dice (they may overlap a port, which is at least visible and consistent).
+  const side = baseSide, gap = side * 0.28;
+  const groupW = side * 2 + gap, groupH = side;
+  const pad = side * 0.4;
+  const sea = {
+    x1: Math.max(cx - half, pad),
+    y1: Math.max(cy - half, pad),
+    x2: Math.min(cx + half, canvas.width - pad),
+    y2: Math.min(cy + half, canvas.height - pad),
+  };
+  const clamp = (v, lo, hi) => (lo > hi ? (lo + hi) / 2 : Math.min(hi, Math.max(lo, v)));
+  const x = clamp(sea.x2 - groupW / 2, sea.x1 + groupW / 2, sea.x2 - groupW / 2);
+  const y = clamp(sea.y1 + groupH / 2, sea.y1 + groupH / 2, sea.y2 - groupH / 2);
+  const box = { x1: x - groupW/2, y1: y - groupH/2, x2: x + groupW/2, y2: y + groupH/2 };
+  return { x, y, side, gap, groupW, groupH, box, labels };
 }
 
 function drawDice() {
