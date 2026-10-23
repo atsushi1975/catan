@@ -231,6 +231,26 @@
   setInterval(beat, 5000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) beat(); });
 
+  // -----------------------------------------------------------------------
+  // Never fail silently. Any unexpected error used to leave the page showing
+  // the board preview with no explanation at all.
+  // -----------------------------------------------------------------------
+  function showFatal(e) {
+    const msg = String((e && (e.stack || e.message)) || e);
+    let bar = document.getElementById('fatal-bar');
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'fatal-bar';
+      bar.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:99;padding:8px 10px;' +
+        'background:#4a1a1a;color:#ffd9d9;font-size:11px;white-space:pre-wrap;max-height:35vh;overflow:auto';
+      document.body.appendChild(bar);
+    }
+    bar.textContent = 'エラー: ' + msg;
+    try { console.error(e); } catch (_) {}
+  }
+  window.addEventListener('error', ev => showFatal(ev.error || ev.message));
+  window.addEventListener('unhandledrejection', ev => showFatal(ev.reason));
+
   function q(path) {
     return token ? path + (path.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token) : path;
   }
@@ -546,7 +566,12 @@
 
   async function tick() {
     if (booted) return;   // game already running; game.js polls /state
-    try { await renderLobby(); } catch (e) { /* ignore */ }
+    try { await renderLobby(); }
+    catch (e) {
+      // Never fail silently: a thrown render used to leave the page on the
+      // board preview with no message at all ("just the hexes").
+      showFatal(e);
+    }
   }
   tick();
   setInterval(tick, 1500);

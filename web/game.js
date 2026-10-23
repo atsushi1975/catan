@@ -509,6 +509,24 @@ function handleEvents(events) {
 }
 
 
+// A player page must never silently look like a spectator board. If the server
+// says the viewer has no seat, say so on screen instead of showing the hexes
+// with no explanation.
+function updateRoleBanner() {
+  if (VIEW !== 'client') return;
+  const missing = !state || state.role === 'spectator';
+  let bar = document.getElementById('role-bar');
+  if (!missing) { if (bar) bar.remove(); return; }
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'role-bar';
+    bar.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:60;padding:6px 10px;' +
+      'background:#5a4500;color:#ffe9a8;font-size:12px;text-align:center';
+    document.body.appendChild(bar);
+  }
+  bar.textContent = '観戦モード：このブラウザはこのゲームの席を持っていません';
+}
+
 function api(path) {
   let url = path;
   const params = [];
@@ -572,6 +590,7 @@ async function getState() {
     return;
   }
   staleHits = 0;
+  updateRoleBanner();
   // Tab title follows the player's own name while the game is running
   // (set again on every poll so it can never stay at the default).
   if (VIEW === 'client' && state.you !== null && state.you !== undefined &&
