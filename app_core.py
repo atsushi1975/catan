@@ -61,6 +61,7 @@ ROOM = {
     "order": [],
     "g": None,
     "slots": {},        # lobby draft: seat index -> chosen turn number (1..N)
+    "color_slots": {},  # lobby draft: seat index -> chosen colour (dice order)
     "settings": {       # house rules chosen in the lobby before the game starts
         "desert": "coast_ng",   # "center" | "coast_ng" | "none"
         "numbers": "official",  # "official" | "random"
@@ -104,6 +105,7 @@ def reset_room():
         ROOM["order"] = []
         ROOM["g"] = None
         ROOM["slots"] = {}
+        ROOM["color_slots"] = {}
         ROOM["settings"] = {"desert": "coast_ng", "numbers": "official", "victory": 10}
 
 
@@ -167,6 +169,27 @@ def _current_picker():
     return None
 
 
+def _slots_done():
+    q = _pick_queue()
+    slots = ROOM.get("slots") or {}
+    return bool(q) and all(s in slots for s in q)
+
+
+def _color_picker():
+    """Seat that must choose a colour next: same dice order as the turn draft.
+
+    Colours are drafted AFTER every turn number has been taken, so the two
+    stages never interleave (much easier to follow on a phone).
+    """
+    if not _slots_done():
+        return None
+    picked = ROOM.get("color_slots") or {}
+    for s in _pick_queue():
+        if s not in picked:
+            return s
+    return None
+
+
 def _draft_state():
     """None unless the room is waiting for picks; otherwise the draft state."""
     seats = ROOM.get("seats") or []
@@ -176,12 +199,24 @@ def _draft_state():
         return None
     q = _pick_queue()
     slots = ROOM.get("slots") or {}
+    colors = ROOM.get("color_slots") or {}
+    slots_done = _slots_done()
+    colors_done = slots_done and all(s in colors for s in q)
+    if colors_done:
+        stage = "done"
+    elif slots_done:
+        stage = "colors"
+    else:
+        stage = "slots"
     return {
         "queue": [{"seat": s, "name": seats[s].get("name") or f"プレイヤー{s+1}",
                    "total": sum(seats[s]["roll"])} for s in q],
         "slots": {str(s): slots[s] for s in q if s in slots},
+        "colors": {str(s): colors[s] for s in q if s in colors},
         "current_picker": _current_picker(),
-        "ready": all(s in slots for s in q),
+        "color_picker": _color_picker(),
+        "stage": stage,
+        "ready": colors_done,
     }
 
 
@@ -249,6 +284,7 @@ def _sync_board():
         # and the rolls (everyone has to roll again for the new draft anyway).
         ROOM["g"] = None
         ROOM["slots"] = {}
+        ROOM["color_slots"] = {}
         for s in ROOM["seats"]:
             s["roll"] = None
         return None
@@ -555,6 +591,9 @@ def handle_lobby(action, payload, local=True):
             slots = ROOM.get("slots") or {}
             ROOM["slots"] = {k - 1 if k > seat else k: v
                              for k, v in slots.items() if k != seat}
+            colors = ROOM.get("color_slots") or {}
+            ROOM["color_slots"] = {k - 1 if k > seat else k: v
+                                   for k, v in colors.items() if k != seat}
             # A different player count invalidates the previewed map.
             _sync_board()
             if ROOM["g"] is None and len(seats) >= 2:
@@ -596,8 +635,8 @@ def handle_lobby(action, payload, local=True):
             slots[seat] = n
             return {"ok": True, "seat": seat, "slot": n}
     if action == "room_color":
-        # Lobby: pick the colour of your own pieces. Two seats may not share a
-        # colour, and the choice must be made before the game starts.
+        # Colour draft, stage 2 of the lobby draft: same dice order as the turn
+        # number draft. Two seats may never share a colour.
         with LOCK:
             seat = _seat_of(token)
             if seat is None:
@@ -607,11 +646,18 @@ def handle_lobby(action, payload, local=True):
             color = payload.get("color")
             if color not in PLAYER_COLORS:
                 return {"ok": False, "error": "不正な色です"}
-            for i, s in enumerate(ROOM["seats"]):
-                if i != seat and s.get("color") == color:
-                    return {"ok": False, "error": "その色は既に使われています"}
-            ROOM["seats"][seat]["color"] = color
-            return {"ok": True, "color": color}
+            if not _slots_done():
+                return {"ok": False, "error": "先に順番を決めてください"}
+            picked = ROOM.setdefault("color_slots", {})
+            if any(v == color and k != seat for k, v in picked.items()):
+                return {"ok": False, "error": "その色は既に選ばれています"}
+            # Only the player whose turn it is may pick; someone who already
+            # picked may still switch to another free colour until the start.
+            if seat != _color_picker() and seat not in picked:
+                return {"ok": False, "error": "色を選ぶ順番ではありません"}
+            picked[seat] = color
+            ROOM["seats"][seat]["color"] = color   # mirror for the seat list
+            return {"ok": True, "color": color, "seat": seat}
     if action == "room_setting":
         with LOCK:
             if ROOM["phase"] != "lobby":
@@ -641,6 +687,7 @@ def handle_lobby(action, payload, local=True):
                 # away with the new rule (players are looking at the board).
                 ROOM["g"] = None
                 ROOM["slots"] = {}
+                ROOM["color_slots"] = {}
                 for seat in ROOM["seats"]:
                     seat["roll"] = None
                 _ensure_board()
@@ -662,12 +709,14 @@ def handle_lobby(action, payload, local=True):
             slots = ROOM.get("slots") or {}
             if any(s not in slots for s in q):
                 return {"ok": False, "error": "順番が未確定です（全員が番号を選んでください）"}
+            picked = ROOM.get("color_slots") or {}
+            if any(s not in picked for s in q):
+                return {"ok": False, "error": "色が未確定です（全員が色を選んでください）"}
             # Play order follows the numbers the players chose, not the dice.
             order = sorted(q, key=lambda i: slots[i])
             ROOM["order"] = order
             names = [seats[i].get("name") or f"プレイヤー{i+1}" for i in order]
-            colors = [seats[i].get("color") or PLAYER_COLORS[i % len(PLAYER_COLORS)]
-                      for i in order]
+            colors = [picked[i] for i in order]
             # Reuse the board the players were looking at during the draft.
             g = _ensure_board()
             if g is None:
@@ -712,6 +761,7 @@ def handle_action(action, payload, actor, local=True):
                 s["roll"] = None
             ROOM["order"] = []
             ROOM["slots"] = {}
+            ROOM["color_slots"] = {}
             ROOM["g"] = None
             ROOM["phase"] = "lobby"
         return {"ok": True}
