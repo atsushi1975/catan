@@ -488,3 +488,15 @@ v27 の後に「ブラウザを完全終了 → 起動」で復帰できない�
 - 左下の行に `ph:`（/room の phase）、`ys:`（/room の you_seat）、`boot:` を追加。
 - 盤面起動後は右下に `g | you:… | role:… | ph:… | cur:… | n:…` を表示（game.js）。
 - 目的: 「/room は席あり」なのに「/state は観戦」というズレを画面上で確定させる。
+
+## v33 / v34: スマホで操作パネルが見えない問題
+
+- 症状: 盤面だけ表示され、下の操作パネルのバーが無い。右下の「監視画面」リンクだけ見える。
+  診断行は `side:block`, `cls:-`, `w:360` で、サイドバー自体は生成されていた。
+- 原因: `#layout` の高さが `100vh`。Android Chrome の `100vh` は URL バー裏まで含むため、
+  下端のバーが見えている範囲の外に押し出されていた。`body { overflow:hidden }` なので
+  スクロールでも到達できない。縦横どちらでも再現。
+- 修正: `height: var(--app-h, 100dvh)` にし、`visualViewport.height`（無ければ
+  `innerHeight`）を `--app-h` に反映。`resize` / `orientationchange` / `visualViewport.resize`
+  で更新する。
+- v33 で診断行に `w:`（innerWidth）/ `side:`（sidebar の display）/ `cls:`（body のクラス）を追加。
