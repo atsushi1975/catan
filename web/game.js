@@ -388,15 +388,29 @@ function dicePlacement() {
   const groupH = side;
   const pad = side * 0.4;
   const labels = _portLabelBoxes(state.board || {});
+  // The sea square is CENTRED in the canvas (see drawSea), so the dice must be
+  // placed relative to the sea, not to the canvas. On a tall phone the canvas
+  // has a lot of empty space above the water; measuring from the canvas top
+  // pushed the dice off the water (and it moved whenever the action panel
+  // opened or closed and the canvas changed height).
+  const sea = { x1: cx - half, y1: cy - half, x2: cx + half, y2: cy + half };
+  const minX = sea.x1 + pad + groupW / 2;
+  const maxX = sea.x2 - pad - groupW / 2;
+  const minY = sea.y1 + pad + groupH / 2;
+  const maxY = sea.y2 - pad - groupH / 2;
+  const clamp = (v, lo, hi) => (lo > hi ? (lo + hi) / 2 : Math.min(hi, Math.max(lo, v)));
   // Top-right corner of the sea square, then nudge left and down away from the
   // port labels. The top of the board is the safest place: nothing else lives
   // there and the dice can never be clipped by the bottom edge.
-  const right = cx + half - pad - groupW / 2;
-  const top = pad + groupH / 2;
+  const right = clamp(sea.x2 - pad - groupW / 2, minX, maxX);
+  const top = clamp(sea.y1 + pad + groupH / 2, minY, maxY);
   const cands = [];
   for (const dy of [0, side * 1.3, side * 2.6]) {
     for (const dx of [0, -side * 1.3, -side * 2.6, -side * 3.9]) {
-      cands.push({ x: right + dx, y: top + dy });
+      cands.push({
+        x: clamp(right + dx, minX, maxX),
+        y: clamp(top + dy, minY, maxY),
+      });
     }
   }
   let spot = cands[0];

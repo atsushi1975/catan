@@ -122,6 +122,7 @@
     b[tabId()] = now;
     for (const k of Object.keys(b)) if (now - b[k] > 600000) delete b[k];
     writeMap(BKEY, b);
+    try { diagLine(); } catch (e) {}   // keep the status line current everywhere
   }
   function tabAlive(id) {
     const b = readMap(BKEY);
@@ -227,6 +228,7 @@
   let token = getToken();
   let booted = false;
   let lastRecoverTry = 0;
+  const VERSION = 'v30';   // shown by diagLine(); bump whenever the client changes
   beat();
   setInterval(beat, 5000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) beat(); });
@@ -250,6 +252,28 @@
   }
   window.addEventListener('error', ev => showFatal(ev.error || ev.message));
   window.addEventListener('unhandledrejection', ev => showFatal(ev.reason));
+
+  // A tiny always-on status line. It tells us which build the phone is really
+  // running and what the browser still remembers - without it, "it does not
+  // work" cannot be told apart from "the old files are still being served".
+  function diagLine() {
+    let d = document.getElementById('diag-line');
+    if (!d) {
+      d = document.createElement('div');
+      d.id = 'diag-line';
+      d.style.cssText = 'position:fixed;left:4px;bottom:2px;z-index:70;font-size:10px;' +
+        'color:#999;pointer-events:none;text-shadow:0 0 2px #000';
+      document.body.appendChild(d);
+    }
+    let tab = '?';
+    try { tab = sessionStorage.getItem(TABKEY) ? 'y' : 'n'; } catch (e) {}
+    let n = 0;
+    try { n = Object.keys(readTokens()).length; } catch (e) {}
+    let seat = 'n';
+    try { seat = lastSeat().token ? 'y' : 'n'; } catch (e) {}
+    d.textContent = VERSION + ' | token:' + (token ? 'y' : 'n') +
+      ' | saved:' + n + ' | seat:' + seat + ' | tab:' + tab;
+  }
 
   function q(path) {
     return token ? path + (path.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token) : path;
@@ -572,6 +596,7 @@
       // board preview with no message at all ("just the hexes").
       showFatal(e);
     }
+    try { diagLine(); } catch (e) {}
   }
   tick();
   setInterval(tick, 1500);
