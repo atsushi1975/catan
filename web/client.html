@@ -81,16 +81,29 @@
 <script>
 (function () {
   // ---- token storage -------------------------------------------------------
-  // Phones discard backgrounded tabs after a long idle and clear sessionStorage
-  // with them, which used to leave the player with NO token after coming back:
-  // the client then looked like a spectator and could never act again.
+  // Phones discard backgrounded tabs after a long idle. When that happens the
+  // per-tab id kept in sessionStorage can be cleared too, and looking the token
+  // up by tab id then failed: the player came back as a spectator and could
+  // never act again.
   //
-  // So the tokens live in localStorage (survives tab discard / browser restart),
-  // but each TAB keeps its own token via a per-tab id stored in sessionStorage
-  // (a tab that is discarded keeps its id, so it still finds its token). This
-  // keeps two tabs on one PC as two different players, like before.
+  // Tokens still live in localStorage keyed by tab id (two tabs on one PC stay
+  // two different players), but we ALSO remember the last seat this browser
+  // used. If the tab id is gone after a wake-up, the client re-claims that seat
+  // - only while a game is running, only if the server still knows the token,
+  // and only if no other live tab is holding it (heartbeat below), so opening a
+  // second tab never steals player 1's seat.
   const TABKEY = 'catan_tabid';
-  const TKEY = 'catan_tokens';
+  const TKEY = 'catan_tokens';     // { tabId: token }
+  const LKEY = 'catan_last_seat';  // { token, tabId, at }
+  const BKEY = 'catan_tab_beats';  // { tabId: lastSeenMs }
+
+  function readMap(key) {
+    try { return JSON.parse(localStorage.getItem(key) || '{}') || {}; }
+    catch (e) { return {}; }
+  }
+  function writeMap(key, m) {
+    try { localStorage.setItem(key, JSON.stringify(m)); } catch (e) {}
+  }
   function tabId() {
     let t = null;
     try { t = sessionStorage.getItem(TABKEY); } catch (e) {}
@@ -100,22 +113,70 @@
     }
     return t;
   }
-  function readTokens() {
-    try { return JSON.parse(localStorage.getItem(TKEY) || '{}') || {}; }
-    catch (e) { return {}; }
+  // A tab counts as alive if it beat recently. Background tabs throttle timers
+  // to about once a minute, so the window has to be generous.
+  const TAB_ALIVE_MS = 90000;
+  function beat() {
+    const b = readMap(BKEY);
+    const now = Date.now();
+    b[tabId()] = now;
+    for (const k of Object.keys(b)) if (now - b[k] > 600000) delete b[k];
+    writeMap(BKEY, b);
   }
+  function tabAlive(id) {
+    const b = readMap(BKEY);
+    return !!(id && b[id] && Date.now() - b[id] < TAB_ALIVE_MS);
+  }
+  function readTokens() { return readMap(TKEY); }
   function getToken() {
     const m = readTokens();
     return m[tabId()] || null;
   }
+  function lastSeat() { return readMap(LKEY); }
   function setToken(t) {
     const m = readTokens();
-    if (t) m[tabId()] = t; else delete m[tabId()];
-    try { localStorage.setItem(TKEY, JSON.stringify(m)); } catch (e) {}
+    const id = tabId();
+    if (t) {
+      m[id] = t;
+      writeMap(LKEY, { token: t, tabId: id, at: Date.now() });
+    } else {
+      delete m[id];
+      const last = lastSeat();
+      if (last && last.tabId === id) writeMap(LKEY, {});
+    }
+    writeMap(TKEY, m);
+  }
+  // The tab id did not survive the wake-up: re-claim the last seat this browser
+  // used, but only if the server still knows that seat.
+  async function recoverSeat() {
+    const last = lastSeat();
+    if (!last || !last.token) return false;
+    if (last.tabId !== tabId() && tabAlive(last.tabId)) return false;
+    let r = null;
+    try {
+      r = await fetch('/room?token=' + encodeURIComponent(last.token)).then(x => x.json());
+    } catch (e) { return false; }
+    if (!r || !r.seats) return false;
+    if (r.you_seat === null || r.you_seat === undefined) return false;
+    token = last.token;
+    setToken(token);
+    // Drop the old key if it still holds the same seat (it belongs to a tab id
+    // that no longer exists).
+    const m = readTokens();
+    let cleaned = false;
+    for (const k of Object.keys(m)) {
+      if (k !== tabId() && m[k] === token) { delete m[k]; cleaned = true; }
+    }
+    if (cleaned) writeMap(TKEY, m);
+    return true;
   }
 
   let token = getToken();
   let booted = false;
+  let lastRecoverTry = 0;
+  beat();
+  setInterval(beat, 5000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) beat(); });
 
   function q(path) {
     return token ? path + (path.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token) : path;
@@ -178,7 +239,19 @@
   }
 
   async function renderLobby() {
-    const r = await room();
+    let r = await room();
+    // A failed poll (network hiccup right after a wake-up) must not be read as
+    // "your seat is gone" - just wait for the next tick.
+    if (!r || r.error || !r.seats) return;
+    // Wake-up recovery: the tab id may be gone after the phone discarded the
+    // tab, so try to re-claim this browser's last seat before showing the lobby.
+    if (!token && (Date.now() - lastRecoverTry > 5000)) {
+      lastRecoverTry = Date.now();
+      if (await recoverSeat()) {
+        const rr = await room();
+        if (rr && rr.seats) r = rr;
+      }
+    }
     // A game is running. Only a player whose token still maps to a seat may
     // enter the board; anyone else (lost token after the phone discarded the
     // tab, or a fresh visitor) stays in the lobby. Joining mid-game is not

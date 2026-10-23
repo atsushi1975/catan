@@ -426,6 +426,8 @@ let mode = 'none';
 let scale = 50;
 let TOKEN = null;
 let VIEW = 'monitor';        // 'monitor' | 'client'
+// How many polls in a row have reported "no seat" (see getState).
+let staleHits = 0;
 let booted = false;
 let READONLY = false;        // monitor mode: view-only, no game actions
 
@@ -540,9 +542,15 @@ async function getState() {
   // (e.g. the room was reset or the server restarted). There is nothing we can
   // do on this screen - go back to the lobby so the player can rejoin.
   //
+  // A single null is NOT proof: right after a phone wakes up the first poll can
+  // come back before the connection is really up, and acting on it would throw
+  // the player's seat away for good. Require two polls in a row to agree.
+  //
   // Guard with a flag that SURVIVES the reload: without it this would reload the
   // page, boot straight back into the still-running game and loop forever.
   if (VIEW === 'client' && (state.you === null || state.you === undefined)) {
+    staleHits++;
+    if (staleHits < 2) return;          // wait for the next poll (1.5s)
     let warned = false;
     try { warned = sessionStorage.getItem('catan_stale_warned') === '1'; } catch (e) {}
     if (!warned) {
@@ -555,10 +563,15 @@ async function getState() {
       const t = JSON.parse(localStorage.getItem('catan_tokens') || '{}') || {};
       delete t[sessionStorage.getItem('catan_tabid')];
       localStorage.setItem('catan_tokens', JSON.stringify(t));
+      // The wake-up fallback must forget it too, or the next boot would try to
+      // re-claim this dead seat again.
+      const last = JSON.parse(localStorage.getItem('catan_last_seat') || '{}') || {};
+      if (last && last.token && last.token === TOKEN) localStorage.removeItem('catan_last_seat');
     } catch (e) {}
     location.reload();
     return;
   }
+  staleHits = 0;
   // Tab title follows the player's own name while the game is running
   // (set again on every poll so it can never stay at the default).
   if (VIEW === 'client' && state.you !== null && state.you !== undefined &&
