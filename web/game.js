@@ -466,6 +466,7 @@ const phaseJa = {setup:'初期配置', roll:'サイコロ', main:'建設・交�
 //   the centre of the screen AND is appended to the log panel.
 // ---------------------------------------------------------------------------
 let seenEventId = null;       // highest event id already handled (null = first load)
+let wasMyTurn = false;        // previous poll: was it this player's turn?
 let logLines = [];            // recent events, newest last
 const LOG_MAX = 20;
 
@@ -600,6 +601,12 @@ async function getState() {
     return;
   }
   state = raw;
+  // Announce that the turn has come back to this player. The toast is fired on
+  // the transition (not on every poll), so it shows up exactly once per turn.
+  const myTurnNow = VIEW === 'client' && !READONLY &&
+    state.you !== null && state.you !== undefined && state.you === state.current;
+  if (myTurnNow && !wasMyTurn) showToast('あなたの手番です', 'mine');
+  wasMyTurn = myTurnNow;
   // Stale / missing token while a game is running: our seat no longer exists
   // (e.g. the room was reset or the server restarted). There is nothing we can
   // do on this screen - go back to the lobby so the player can rejoin.
@@ -967,13 +974,14 @@ function render() {
     ctx.lineWidth = 2;
     ctx.stroke();
     if (h.number) {
-      // parchment disc so the number stays readable over the texture
-      ctx.fillStyle = '#f3ead1';
+      // Beige token, closer to the original cardboard chip (it used to be a
+      // white disc, which read as "screen" rather than "piece").
+      ctx.fillStyle = '#e3d4ac';
       ctx.beginPath(); ctx.arc(cc.x, cc.y - 2, 19, 0, Math.PI*2); ctx.fill();
       ctx.strokeStyle = (h.number===6||h.number===8) ? '#c00' : '#5b4a2a';
       ctx.lineWidth = 3;
       ctx.beginPath(); ctx.arc(cc.x, cc.y - 2, 19, 0, Math.PI*2); ctx.stroke();
-      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.fillStyle = '#f0e5c8';
       ctx.beginPath(); ctx.arc(cc.x, cc.y - 2, 13, 0, Math.PI*2); ctx.fill();
       ctx.fillStyle = (h.number===6||h.number===8) ? '#c00' : '#000';
       ctx.font = 'bold 16px sans-serif';
