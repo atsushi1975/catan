@@ -30,7 +30,11 @@ h2 { margin: 8px 0; font-size: 16px; }
    --------------------------------------------------------------------------- */
 @media (max-width: 860px) {
   body { overflow: hidden; }
-  #layout { flex-direction: column; height: 100dvh; height: 100vh; }
+  /* The sheet must sit inside the VISIBLE viewport. 100vh on Android includes
+     the area behind the URL bar, which pushed the action bar off-screen (the
+     board filled the whole display and the panel was unreachable).
+     --app-h is set from window.innerHeight / visualViewport in client.html. */
+  #layout { flex-direction: column; height: 100vh; height: var(--app-h, 100dvh); }
   #board-wrap { flex: 1 1 auto; min-height: 0; }
   /* the sidebar is a bottom sheet: the bar is always visible, the body opens */
   #sidebar {

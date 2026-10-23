@@ -229,7 +229,24 @@
   let booted = false;
   let lastRecoverTry = 0;
   let lastRoom = null;      // last successful /room answer, for diagLine()
-  const VERSION = 'v33';   // shown by diagLine(); bump whenever the client changes
+  const VERSION = 'v34';   // shown by diagLine(); bump whenever the client changes
+  // Android chrome often shows/hides the URL bar and the viewport height
+  // reported by 100vh/100dvh does not match what is actually visible, which
+  // pushed the bottom action sheet off-screen. Keep a CSS variable in sync so
+  // the layout can clamp to the real visible height.
+  function syncViewportH() {
+    try {
+      const h = (window.visualViewport && window.visualViewport.height) || window.innerHeight;
+      document.documentElement.style.setProperty('--app-h', Math.round(h) + 'px');
+    } catch (e) {}
+  }
+  syncViewportH();
+  if (window.visualViewport) {
+    try { window.visualViewport.addEventListener('resize', syncViewportH); } catch (e) {}
+  }
+  window.addEventListener('resize', syncViewportH);
+  window.addEventListener('orientationchange', () => setTimeout(syncViewportH, 50));
+
   beat();
   setInterval(beat, 5000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) beat(); });
