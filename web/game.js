@@ -389,15 +389,22 @@ function dicePlacement() {
   const pad = side * 0.4;
   const labels = _portLabelBoxes(state.board || {});
   // The sea square is CENTRED in the canvas (see drawSea), so the dice must be
-  // placed relative to the sea, not to the canvas. On a tall phone the canvas
-  // has a lot of empty space above the water; measuring from the canvas top
-  // pushed the dice off the water (and it moved whenever the action panel
-  // opened or closed and the canvas changed height).
-  const sea = { x1: cx - half, y1: cy - half, x2: cx + half, y2: cy + half };
-  const minX = sea.x1 + pad + groupW / 2;
-  const maxX = sea.x2 - pad - groupW / 2;
-  const minY = sea.y1 + pad + groupH / 2;
-  const maxY = sea.y2 - pad - groupH / 2;
+  // placed relative to the sea, not to the canvas.
+  // BUT the sea is often TALLER than the canvas (scale is limited by height:
+  // height/10 vs a sea of 11.2 units), so its top edge lies ABOVE the visible
+  // area. Measuring from the sea alone therefore clipped the top of the dice -
+  // most visibly when the action panel shrank the board. Keep the dice inside
+  // the intersection of the sea and the canvas.
+  const sea = {
+    x1: Math.max(cx - half, pad),
+    y1: Math.max(cy - half, pad),
+    x2: Math.min(cx + half, canvas.width - pad),
+    y2: Math.min(cy + half, canvas.height - pad),
+  };
+  const minX = sea.x1 + groupW / 2;
+  const maxX = sea.x2 - groupW / 2;
+  const minY = sea.y1 + groupH / 2;
+  const maxY = sea.y2 - groupH / 2;
   const clamp = (v, lo, hi) => (lo > hi ? (lo + hi) / 2 : Math.min(hi, Math.max(lo, v)));
   // Top-right corner of the sea square, then nudge left and down away from the
   // port labels. The top of the board is the safest place: nothing else lives
@@ -701,7 +708,7 @@ function toCanvas(p) {
   return {x: canvas.width/2 + p.x*scale, y: canvas.height/2 + p.y*scale};
 }
 function playerColor(id) {
-  const colors = ['#e53935','#1e88e5','#ab47bc','#fb8c00'];
+  const colors = ['#fb8c00','#1e88e5','#ffffff','#e53935'];
   return colors[id] || '#888';
 }
 
@@ -1573,7 +1580,7 @@ function sidebarHTML() {
       <button class="btn" id="mode-city">都市を建てる</button>
       <button class="btn" id="btn-buydev">発展カードを購入</button>
       <button class="btn" id="mode-none">キャンセル</button>
-      <button class="btn" id="mode-robber">盗賊を移動</button>
+
     </div>
     <div id="discard-panel" class="panel" style="display:none;">
       <h2>カードを捨てる</h2>
@@ -1773,7 +1780,8 @@ function bindButtons() {
   document.getElementById('mode-settle').onclick = () => setMode('settle');
   document.getElementById('mode-city').onclick = () => setMode('city');
   document.getElementById('mode-none').onclick = () => setMode('none');
-  document.getElementById('mode-robber').onclick = () => { pendingKnight=false; setMode('robber'); };
+  const mrobBtn = document.getElementById('mode-robber');
+  if (mrobBtn) mrobBtn.onclick = () => { pendingKnight=false; setMode('robber'); };
 }
 
 // ---------------------------------------------------------------------------
