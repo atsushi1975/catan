@@ -1417,7 +1417,7 @@ function updateSidebar() {
       ? `<br><span style="color:#8cf">あなた: <b>${playerName(state.you)}</b> (P${state.you})</span>`
       : `<br><span style="color:#f88">このゲームに参加していません（観戦モード）</span>`;
   }
-  status.innerHTML = `フェーズ: <b>${phaseJa[state.phase]||state.phase}</b> | ターン ${state.turn_number||0}<br>手番: <b>${curName}</b> (P${curId})${hint}${extra}${mine}<br>サイコロ: ${(state.dice||[]).join('+')||'-'} | 勝者: ${state.winner!==null && state.winner!==undefined?playerName(state.winner):'-'}`;
+  status.innerHTML = `フェーズ: <b>${phaseJa[state.phase]||state.phase}</b> | ターン ${state.turn_number||0}<br>手番: <b>${curName}</b> (P${curId})${hint}${extra}${mine}<br>勝者: ${state.winner!==null && state.winner!==undefined?playerName(state.winner):'-'}`;
 
   const pd = document.getElementById('players');
   pd.innerHTML = '';
