@@ -484,6 +484,11 @@ let VIEW = 'monitor';        // 'monitor' | 'client'
 let staleHits = 0;
 let booted = false;
 let READONLY = false;        // monitor mode: view-only, no game actions
+// The "g | you:..." corner overlay is a debug aid, not player UI.
+// It only appears when the page is opened with ?diag=1.
+const DIAG_ON = (() => {
+  try { return new URLSearchParams(location.search).has('diag'); } catch (e) { return false; }
+})();
 
 let pendingKnight = false;
 let pendingRobberHex = null;
@@ -573,6 +578,11 @@ function handleEvents(events) {
 // and the page just bounced back to the lobby with no explanation.
 function diagGame() {
   if (VIEW !== 'client') return;
+  if (!DIAG_ON) {
+    const old = document.getElementById('g-diag');
+    if (old) old.remove();
+    return;
+  }
   let d = document.getElementById('g-diag');
   if (!d) {
     d = document.createElement('div');

@@ -237,7 +237,12 @@
   let booted = false;
   let lastRecoverTry = 0;
   let lastRoom = null;      // last successful /room answer, for diagLine()
-  const VERSION = 'v38';   // shown by diagLine(); bump whenever the client changes
+  const VERSION = 'v39';   // shown by diagLine(); bump whenever the client changes
+  // Debug/diagnostic text stays hidden for players. Add ?diag=1 to the URL
+  // (player or monitor page) when the build string or seat state is needed.
+  const SHOW_DIAG = (() => {
+    try { return new URLSearchParams(location.search).has('diag'); } catch (e) { return false; }
+  })();
   // Android chrome often shows/hides the URL bar and the viewport height
   // reported by 100vh/100dvh does not match what is actually visible, which
   // pushed the bottom action sheet off-screen. Keep a CSS variable in sync so
@@ -283,6 +288,11 @@
   // running and what the browser still remembers - without it, "it does not
   // work" cannot be told apart from "the old files are still being served".
   function diagLine() {
+    if (!SHOW_DIAG) {
+      const old = document.getElementById('diag-line');
+      if (old) old.remove();
+      return;
+    }
     let d = document.getElementById('diag-line');
     if (!d) {
       d = document.createElement('div');
@@ -379,7 +389,7 @@
         <button class="btn" id="btn-retry">復帰を再試行</button>
         <a class="btn" href="/monitor" target="_blank" style="text-decoration:none;">監視画面を開く</a>
       </div>
-      <div class="muted" style="font-size:11px;margin-top:10px;">${esc(diag)}</div>`;
+      ${SHOW_DIAG ? `<div class="muted" style="font-size:11px;margin-top:10px;">${esc(diag)}</div>` : ''}`;
     body.dataset.built = '1';
     lastKey = null;
     const b = document.getElementById('btn-reload');
