@@ -228,7 +228,7 @@
   let token = getToken();
   let booted = false;
   let lastRecoverTry = 0;
-  const VERSION = 'v30';   // shown by diagLine(); bump whenever the client changes
+  const VERSION = 'v31';   // shown by diagLine(); bump whenever the client changes
   beat();
   setInterval(beat, 5000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) beat(); });

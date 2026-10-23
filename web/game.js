@@ -644,8 +644,20 @@ function isMyTurn() {
 }
 function selfPlayer() {
   if (!state || !state.players) return null;
-  if (VIEW === 'monitor') return state.players[state.current];
-  return state.players[state.you] || null;
+  if (VIEW === 'monitor') return playerAt(state.current);
+  return playerAt(state.you);
+}
+// Safe lookup: `state.current` / `state.you` / `state.winner` can point outside
+// the player list (a seat that left, a game that just ended, ...). Reading
+// `.name` off the result used to throw and froze the whole UI mid-render.
+function playerAt(id) {
+  if (!state || !Array.isArray(state.players)) return null;
+  if (id === null || id === undefined) return null;
+  return state.players[id] || null;
+}
+function playerName(id) {
+  const p = playerAt(id);
+  return p ? (p.name || '—') : '—';
 }
 function hasPendingDiscards() {
   return state && state.pending_discards && Object.keys(state.pending_discards).length > 0;
@@ -1044,7 +1056,9 @@ function updateSidebar() {
   if (!state || !state.players) return;
   updateInitButton();
   const status = document.getElementById('status');
-  const cur = state.players[state.current];
+  const cur = playerAt(state.current);
+  const curName = cur ? (cur.name || '—') : '—';
+  const curId = cur ? cur.id : '?';
   let hint = '';
   if (isMyTurn()) {
     if (state.phase === 'setup') hint = ` → 開拓地を配置`;
@@ -1062,11 +1076,11 @@ function updateSidebar() {
   if (state.rerolled) extra += '<br><span style="color:#8cf">7は振り直し（第1巡目）</span>';
   let mine = '';
   if (VIEW === 'client') {
-    mine = (state.you !== null && state.you !== undefined)
-      ? `<br><span style="color:#8cf">あなた: <b>${state.players[state.you].name}</b> (P${state.you})</span>`
+    mine = playerAt(state.you)
+      ? `<br><span style="color:#8cf">あなた: <b>${playerName(state.you)}</b> (P${state.you})</span>`
       : `<br><span style="color:#f88">このゲームに参加していません（観戦モード）</span>`;
   }
-  status.innerHTML = `フェーズ: <b>${phaseJa[state.phase]||state.phase}</b> | ターン ${state.turn_number||0}<br>手番: <b>${cur.name}</b> (P${cur.id})${hint}${extra}${mine}<br>サイコロ: ${state.dice.join('+')||'-'} | 勝者: ${state.winner!==null?state.players[state.winner].name:'-'}`;
+  status.innerHTML = `フェーズ: <b>${phaseJa[state.phase]||state.phase}</b> | ターン ${state.turn_number||0}<br>手番: <b>${curName}</b> (P${curId})${hint}${extra}${mine}<br>サイコロ: ${(state.dice||[]).join('+')||'-'} | 勝者: ${state.winner!==null && state.winner!==undefined?playerName(state.winner):'-'}`;
 
   const pd = document.getElementById('players');
   pd.innerHTML = '';
@@ -1154,7 +1168,7 @@ function updatePlayerTradeUI(me) {
   if (offer && VIEW === 'client' && !involved) {
     active.style.display = 'none';
     note.style.display = 'block';
-    note.innerHTML = `※ ${escHtml(state.players[offer.from].name)} さんが取引を提案中です（終わるまで新しい提案はできません）`;
+    note.innerHTML = `※ ${escHtml(playerName(offer.from))} さんが取引を提案中です（終わるまで新しい提案はできません）`;
     builder.style.display = 'block';
     buildPtBuilder(me);
     return;
@@ -1163,8 +1177,8 @@ function updatePlayerTradeUI(me) {
   if (offer) {
     active.style.display = 'block';
     builder.style.display = 'none';
-    const fromP = state.players[offer.from];
-    let html = `<div style="font-size:12px;"><b>${fromP.name}</b> の提案: <b>${resStr(offer.give)}</b> を渡す／<b>${resStr(offer.want)}</b> がほしい</div>`;
+    const fromP = playerAt(offer.from);
+    let html = `<div style="font-size:12px;"><b>${fromP ? escHtml(fromP.name) : '—'}</b> の提案: <b>${resStr(offer.give)}</b> を渡す／<b>${resStr(offer.want)}</b> がほしい</div>`;
     const amTarget = myId !== null && offer.targets.includes(myId) && !(offer.declined||[]).includes(myId);
     if (VIEW === 'monitor') {
       // let the monitor act on behalf of any responder / proposer
@@ -1173,7 +1187,7 @@ function updatePlayerTradeUI(me) {
         html += `<div style="font-size:12px;color:#f88;margin-top:4px;">応答できる相手がいません。</div>`;
       } else {
         for (const t of responders) {
-          html += `<div style="margin-top:4px;font-size:12px;">${state.players[t].name}
+          html += `<div style="margin-top:4px;font-size:12px;">${playerName(t)}
             <button class="btn" data-pt-accept="${t}">承諾</button>
             <button class="btn" data-pt-decline="${t}">拒否</button></div>`;
         }
@@ -1379,7 +1393,7 @@ function updateMobileToggle() {
   const el = document.getElementById('m-bar-status');
   const bar = document.getElementById('m-bar');
   if (!el || !bar || !state || !state.players) return;
-  const cur = state.players[state.current];
+  const cur = playerAt(state.current);
   const parts = [];
   if (READONLY) {
     parts.push('閲覧のみ');
@@ -1388,7 +1402,7 @@ function updateMobileToggle() {
     return;
   }
   parts.push(`ターン${state.turn_number || 0}`);
-  parts.push(isMyTurn() ? 'あなたの手番' : `手番: ${cur.name}`);
+  parts.push(isMyTurn() ? 'あなたの手番' : `手番: ${cur ? (cur.name || '—') : '—'}`);
   if (state.phase === 'setup') parts.push(isMyTurn() ? (state.setup_settlement_required ? '開拓地を配置' : '街道を配置') : '');
   else if (state.phase === 'roll') parts.push(isMyTurn() ? 'サイコロを振る' : '');
   if (hasPendingDiscards()) parts.push('カードを捨てる');
@@ -1413,10 +1427,10 @@ function updatePanels() {
   }
   if (discardPid !== null) {
     const need = state.pending_discards[String(discardPid)];
-    const p = state.players[discardPid];
+    const p = playerAt(discardPid);
     dp.style.display = 'block';
     document.getElementById('discard-info').innerHTML =
-      `<b>${p.name}</b> は <b>${need}</b> 枚捨てる必要があります。捨てるカードを選んでください。`;
+      `<b>${p ? escHtml(p.name) : '—'}</b> は <b>${need}</b> 枚捨てる必要があります。捨てるカードを選んでください。`;
     const box = document.getElementById('discard-inputs');
     if (pendingDiscardPid !== discardPid) {
       pendingDiscardPid = discardPid;
@@ -1448,7 +1462,8 @@ function updatePanels() {
     const sel = document.getElementById('robber-victim');
     sel.innerHTML = '';
     for (const vid of victims) {
-      const vp = state.players[vid];
+      const vp = playerAt(vid);
+      if (!vp) continue;
       const o = document.createElement('option');
       o.value = vid;
       o.textContent = `${vp.name}（手札: ${vp.hand_count}）`;

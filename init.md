@@ -470,3 +470,15 @@ v27 の後に「ブラウザを完全終了 → 起動」で復帰できない�
   海の上の余白ぶんだけ上にズレていた。操作パネルの開閉でキャンバスの高さが変わるので
   再現性も不安定だった。
 - 海の正方形（`drawSea` と同じ中心・半径）を基準にし、**海の内側に収まるようクランプ**する。
+
+## v31: 描画が落ちるバグ（HEX のみ表示の正体）
+
+スマホで `TypeError: Cannot read properties of undefined (reading 'name')`
+（`updateMobileToggle`）が出ていた。`state.current` / `state.you` / `state.winner`
+がプレイヤー配列の外を指すと `players[id].name` で例外になり、**描画が途中で止まって
+サイドバーが出ない**（＝盤面だけ表示）状態になっていた。
+
+- `playerAt(id)` / `playerName(id)` を追加し、範囲外・`null`・配列なしはすべて安全に扱う。
+- `state.players[...]` を直接 `.name` で読んでいた箇所を全部置き換え
+  （サイドバーの手番・自分・勝者、取引の提案者/応答者、捨て札、盗賊の強奪先）。
+- `state.dice` が無い場合も落ちないようにした。
