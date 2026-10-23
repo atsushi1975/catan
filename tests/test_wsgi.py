@@ -129,7 +129,7 @@ check(r.get("ok") is True, "second picker claims slot 2")
 r = post_json({"action": "room_pick", "token": second, "slot": 1})
 check(r.get("ok") is False, "a taken slot cannot be picked")
 
-r = post_json({"action": "room_start"})
+r = post_json({"action": "room_start", "token": tok_a})
 check(r.get("ok") is True, "room_start accepted")
 
 s, j = get_json("/state")

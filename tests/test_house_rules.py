@@ -72,7 +72,7 @@ r = serialize_room()
 check(r["settings"].get("desert") == "coast_ng", "room starts with the coast_ng rule")
 
 # two players so a preview board exists
-handle_lobby("join", {"name": "アリス"})
+TOK_A = handle_lobby("join", {"name": "アリス"})["token"]
 handle_lobby("join", {"name": "ボブ"})
 
 def preview_desert():
@@ -85,24 +85,24 @@ def preview_desert():
     return None
 
 # switch to center -> the preview must be rebuilt and the desert must be central
-res = handle_lobby("room_setting", {"key": "desert", "value": "center"})
+res = handle_lobby("room_setting", {"token": TOK_A, "key": "desert", "value": "center"})
 check(res and res.get("ok"), "room_setting(center) is accepted")
 check(serialize_room()["settings"]["desert"] == "center", "the setting is stored")
 dk = preview_desert()
 check(dk == (0, 0), f"after center, the previewed desert is the middle hex (got {dk})")
 
 # an invalid value is refused and changes nothing
-res = handle_lobby("room_setting", {"key": "desert", "value": "nonsense"})
+res = handle_lobby("room_setting", {"token": TOK_A, "key": "desert", "value": "nonsense"})
 check(res and res.get("ok") is False, "an invalid desert value is refused")
 check(serialize_room()["settings"]["desert"] == "center", "the setting is untouched")
 
 # an unknown key is refused
-res = handle_lobby("room_setting", {"key": "nope", "value": "x"})
+res = handle_lobby("room_setting", {"token": TOK_A, "key": "nope", "value": "x"})
 check(res and res.get("ok") is False, "an unknown setting key is refused")
 
 # non-lobby (playing) must refuse changes
 ROOM["phase"] = "playing"
-res = handle_lobby("room_setting", {"key": "desert", "value": "none"})
+res = handle_lobby("room_setting", {"token": TOK_A, "key": "desert", "value": "none"})
 check(res and res.get("ok") is False, "the rule cannot be changed once playing")
 ROOM["phase"] = "lobby"
 
@@ -113,7 +113,7 @@ check(serialize_room()["settings"].get("desert") == "coast_ng", "room_reset rest
 # end-to-end: choose "center", start a game, and the played board respects it
 handle_lobby("join", {"name": "x"})
 handle_lobby("join", {"name": "y"})
-handle_lobby("room_setting", {"key": "desert", "value": "center"})
+handle_lobby("room_setting", {"token": ROOM["seats"][0]["token"], "key": "desert", "value": "center"})
 seats = ROOM["seats"]
 toks = [s["token"] for s in seats]
 handle_lobby("room_roll", {"token": toks[0]})
@@ -121,7 +121,7 @@ handle_lobby("room_roll", {"token": toks[1]})
 order = sorted(range(2), key=lambda i: -sum(seats[i]["roll"]))
 handle_lobby("room_pick", {"token": toks[order[0]], "slot": 1})
 handle_lobby("room_pick", {"token": toks[order[1]], "slot": 2})
-res = handle_lobby("room_start", {})
+res = handle_lobby("room_start", {"token": toks[0]})
 check(res and res.get("ok"), "the game starts with the chosen rule")
 g = ROOM["g"]
 dk = desert_key(g.board)

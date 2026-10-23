@@ -500,7 +500,7 @@ CURRENT_ONLY = {
 }
 
 
-def handle_lobby(action, payload):
+def handle_lobby(action, payload, local=True):
     token = payload.get("token") or ""
     if action == "join":
         with LOCK:
@@ -561,6 +561,10 @@ def handle_lobby(action, payload):
                 _ensure_board()
             return {"ok": True}
     if action == "room_reset":
+        # Dev/monitor reset of the whole room. Refused for remote callers: a
+        # forwarded link must never be able to wipe a running game.
+        if not local:
+            return {"ok": False, "error": "この操作は外部からは行えません"}
         reset_room()
         return {"ok": True}
     if action == "room_pick":
@@ -612,6 +616,10 @@ def handle_lobby(action, payload):
         with LOCK:
             if ROOM["phase"] != "lobby":
                 return {"ok": False, "error": "ゲーム中は変更できません"}
+            # Only seated players may change the house rules (an empty room is
+            # allowed so the tests / a fresh server can be configured).
+            if ROOM["seats"] and _seat_of(token) is None:
+                return {"ok": False, "error": "席に着いている人だけが変更できます"}
             s = ROOM.setdefault("settings", {})
             key = payload.get("key")
             val = payload.get("value")
@@ -642,6 +650,9 @@ def handle_lobby(action, payload):
         with LOCK:
             if ROOM["phase"] != "lobby":
                 return {"ok": False, "error": "already started"}
+            # A passer-by must not be able to start someone else's game.
+            if ROOM["seats"] and _seat_of(token) is None:
+                return {"ok": False, "error": "席に着いている人だけが開始できます"}
             seats = ROOM["seats"]
             if len(seats) < 2:
                 return {"ok": False, "error": "need at least 2 players"}
@@ -923,7 +934,7 @@ def route_post(payload, query, client_ip):
     local = _debug_allowed(client_ip)
     try:
         with LOCK:
-            lobby_res = handle_lobby(action, payload)
+            lobby_res = handle_lobby(action, payload, local=local)
             if lobby_res is not None:
                 return lobby_res
             actor = token_to_pid(token)

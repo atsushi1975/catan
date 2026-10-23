@@ -53,7 +53,7 @@ def fresh_started_room():
     order = sorted(totals, key=lambda i: -totals[i])
     handle_lobby("room_pick", {"token": toks[order[0]], "slot": 1})
     handle_lobby("room_pick", {"token": toks[order[1]], "slot": 2})
-    handle_lobby("room_start", {})
+    handle_lobby("room_start", {"token": ta})
     # give the players something worth hiding
     g = ROOM["g"]
     for r in g.players[0].resources:
@@ -192,13 +192,25 @@ toks = [a["token"], b["token"]]
 order = sorted(range(2), key=lambda i: -sum(seats[i]["roll"]))
 handle_lobby("room_pick", {"token": toks[order[0]], "slot": 1})
 handle_lobby("room_pick", {"token": toks[order[1]], "slot": 2})
-handle_lobby("room_start", {})
+handle_lobby("room_start", {"token": a["token"]})
 
 r = route_post({"action": "give_resources"}, {}, REMOTE)
 check(r.get("ok") is False, "route_post: remote tokenless give_resources refused")
 r = route_post({"action": "give_resources"}, {}, LOCAL)
 check(r.get("ok") is True, "route_post: local tokenless give_resources allowed")
 
+# --- lobby power actions from a remote caller ------------------------------
+# A forwarded link must not be able to wipe / hijack the room.
+handle_lobby("room_reset", {})
+pa = handle_lobby("join", {"name": "p"})
+pb = handle_lobby("join", {"name": "q"})
+r = route_post({"action": "room_reset"}, {}, REMOTE)
+check(r.get("ok") is False, "route_post: remote room_reset refused")
+check(len(ROOM["seats"]) == 2, "remote room_reset did not wipe the room")
+r = route_post({"action": "room_setting", "key": "desert", "value": "center"}, {}, REMOTE)
+check(r.get("ok") is False, "route_post: remote room_setting refused")
+r = route_post({"action": "room_start"}, {}, REMOTE)
+check(r.get("ok") is False, "route_post: remote room_start refused")
 handle_lobby("room_reset", {})   # leave the room clean
 
 print()
