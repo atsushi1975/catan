@@ -1276,12 +1276,22 @@ function drawPorts(b) {
   ctx.lineCap = 'round';
   for (const pe of (b.port_edges || [])) {
     const g = _portGeom(pe);
-    ctx.beginPath();
-    ctx.moveTo(g.p1.x, g.p1.y);
-    ctx.lineTo(g.p1.x + g.nx * g.L, g.p1.y + g.ny * g.L);
-    ctx.moveTo(g.p2.x, g.p2.y);
-    ctx.lineTo(g.p2.x + g.nx * g.L, g.p2.y + g.ny * g.L);
-    ctx.stroke();
+    // Two pier lines that leave the two ends of the coast edge perpendicular to
+    // the shore, then bend inwards and meet at the port token (they end at its
+    // centre, and the token is painted on top). The old straight pair read as a
+    // ladder lying in the sea; the curve makes the pier point at the harbour.
+    const d = Math.hypot(g.tip.x - g.mid.x, g.tip.y - g.mid.y);
+    const c1 = d * 0.45;             // leave the shore square-on
+    const c2 = d - c1;               // arrive along the port's axis
+    for (const p of [g.p1, g.p2]) {
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      ctx.bezierCurveTo(
+        p.x + g.nx * c1, p.y + g.ny * c1,
+        g.mid.x + g.nx * c2, g.mid.y + g.ny * c2,
+        g.tip.x, g.tip.y);
+      ctx.stroke();
+    }
   }
   ctx.restore();
 }
