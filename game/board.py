@@ -146,20 +146,18 @@ class Board:
             a, b = cycle_edges[(idx + offset) % n]
             port_edge_slots.append((a, b))
 
-        # Port types: alternate specific 2:1 and generic 3:1
-        # (5 specific + 4 generic = 9 ports)
+        # Port types: 5 specific 2:1 + 4 generic 3:1, spread around the coast.
+        # Stepping by 2 through the 9 slots always visits all of them, so every
+        # resource gets exactly one 2:1 port. (The old "specific on even slots"
+        # rule silently dropped one resource whenever the pattern started on an
+        # odd slot: 5 generic + 4 specific, e.g. no brick port at all.)
         specifics = [ResourceType.WOOD, ResourceType.BRICK, ResourceType.SHEEP,
                      ResourceType.WHEAT, ResourceType.ORE]
         rng.shuffle(specifics)
-        specific_first = rng.randrange(2)
-        types = []
-        si = 0
-        for i in range(len(port_edge_slots)):
-            if (i % 2 == 0) == (specific_first == 0) and si < len(specifics):
-                types.append(specifics[si])
-                si += 1
-            else:
-                types.append("generic")
+        types = ["generic"] * len(port_edge_slots)
+        shift = rng.randrange(len(port_edge_slots))
+        for k, spec in enumerate(specifics):
+            types[(shift + 2 * k) % len(port_edge_slots)] = spec
 
         for (v1, v2), ptype in zip(port_edge_slots, types):
             self.ports[v1] = ptype

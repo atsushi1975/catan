@@ -111,8 +111,25 @@ def _auto_setup(g):
         assert g.place_setup_road(road_edge)
         placed += 1
 
+def test_ports_one_of_each():
+    """Every board must offer all five 2:1 ports (and four 3:1 ones).
+
+    Regression: the old alternating rule dropped one resource whenever the
+    pattern started on an odd slot, so a board could have no brick port.
+    """
+    want = sorted(r.value for r in ResourceType if r is not ResourceType.DESERT)
+    for seed in range(200):
+        b = Board(seed=seed)
+        types = [pt if isinstance(pt, str) else pt.value for _, pt in b.port_edges]
+        assert len(types) == 9, (seed, types)
+        specific = sorted(t for t in types if t != "generic")
+        assert specific == want, (seed, specific)
+        assert types.count("generic") == 4, (seed, types)
+    print("port layout ok")
+
 if __name__ == "__main__":
     test_board_creation()
     test_game_setup_flow()
     test_roll_and_distribute()
+    test_ports_one_of_each()
     print("ALL OK")
