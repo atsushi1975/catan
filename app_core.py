@@ -161,10 +161,16 @@ def _pick_queue():
 
 
 def _current_picker():
-    """Seat index that still has to choose a turn number, or None if done."""
+    """Seat whose draft turn it is, or None when everyone is done.
+
+    Each player picks BOTH their turn number and their colour while it is their
+    turn (dice order), then the next player takes over:
+        A: number -> A: colour -> B: number -> B: colour -> ...
+    """
     slots = ROOM.get("slots") or {}
+    colors = ROOM.get("color_slots") or {}
     for s in _pick_queue():
-        if s not in slots:
+        if s not in slots or s not in colors:
             return s
     return None
 
@@ -176,18 +182,14 @@ def _slots_done():
 
 
 def _color_picker():
-    """Seat that must choose a colour next: same dice order as the turn draft.
+    """The current picker once they have taken a turn number (else None).
 
-    Colours are drafted AFTER every turn number has been taken, so the two
-    stages never interleave (much easier to follow on a phone).
+    The colour is chosen right after the number, by the same player.
     """
-    if not _slots_done():
+    cur = _current_picker()
+    if cur is None:
         return None
-    picked = ROOM.get("color_slots") or {}
-    for s in _pick_queue():
-        if s not in picked:
-            return s
-    return None
+    return cur if cur in (ROOM.get("slots") or {}) else None
 
 
 def _draft_state():
@@ -201,13 +203,8 @@ def _draft_state():
     slots = ROOM.get("slots") or {}
     colors = ROOM.get("color_slots") or {}
     slots_done = _slots_done()
-    colors_done = slots_done and all(s in colors for s in q)
-    if colors_done:
-        stage = "done"
-    elif slots_done:
-        stage = "colors"
-    else:
-        stage = "slots"
+    colors_done = bool(q) and all(s in colors for s in q)
+    stage = "done" if (slots_done and colors_done) else "draft"
     return {
         "queue": [{"seat": s, "name": seats[s].get("name") or f"プレイヤー{s+1}",
                    "total": sum(seats[s]["roll"])} for s in q],
@@ -646,8 +643,8 @@ def handle_lobby(action, payload, local=True):
             color = payload.get("color")
             if color not in PLAYER_COLORS:
                 return {"ok": False, "error": "不正な色です"}
-            if not _slots_done():
-                return {"ok": False, "error": "先に順番を決めてください"}
+            if seat not in (ROOM.get("slots") or {}):
+                return {"ok": False, "error": "先に順番を選んでください"}
             picked = ROOM.setdefault("color_slots", {})
             if any(v == color and k != seat for k, v in picked.items()):
                 return {"ok": False, "error": "その色は既に選ばれています"}

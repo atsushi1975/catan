@@ -124,16 +124,17 @@ r = post_json({"action": "room_pick", "token": second, "slot": 1})
 check(r.get("ok") is False, "out-of-order pick is refused")
 r = post_json({"action": "room_pick", "token": first, "slot": 1})
 check(r.get("ok") is True, "first picker claims slot 1")
+
+# the SAME player picks a colour right after their number
+r = post_json({"action": "room_color", "token": second, "color": "red"})
+check(r.get("ok") is False, "the other player cannot colour-draft yet")
+r = post_json({"action": "room_color", "token": first, "color": "red"})
+check(r.get("ok") is True, "first picker takes red")
+
 r = post_json({"action": "room_pick", "token": second, "slot": 2})
 check(r.get("ok") is True, "second picker claims slot 2")
 r = post_json({"action": "room_pick", "token": second, "slot": 1})
 check(r.get("ok") is False, "a taken slot cannot be picked")
-
-# colour draft (stage 2, same dice order)
-r = post_json({"action": "room_color", "token": second, "color": "red"})
-check(r.get("ok") is False, "out-of-order colour pick is refused")
-r = post_json({"action": "room_color", "token": first, "color": "red"})
-check(r.get("ok") is True, "first picker takes red")
 r = post_json({"action": "room_color", "token": second, "color": "red"})
 check(r.get("ok") is False, "a taken colour cannot be picked")
 r = post_json({"action": "room_color", "token": second, "color": "blue"})

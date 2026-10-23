@@ -237,7 +237,7 @@
   let booted = false;
   let lastRecoverTry = 0;
   let lastRoom = null;      // last successful /room answer, for diagLine()
-  const VERSION = 'v37';   // shown by diagLine(); bump whenever the client changes
+  const VERSION = 'v38';   // shown by diagLine(); bump whenever the client changes
   // Android chrome often shows/hides the URL bar and the viewport height
   // reported by 100vh/100dvh does not match what is actually visible, which
   // pushed the bottom action sheet off-screen. Keep a CSS variable in sync so
@@ -503,9 +503,15 @@
 
     if (r.draft) {
       const d = r.draft;
+      const cp = d.colors || {};
+      const qname = seat => esc((d.queue.find(x => x.seat === seat) || {}).name || '');
+      const myTurn = !!mySeat && d.current_picker === mySeat.seat;
+      const iHaveSlot = !!mySeat && d.slots[String(mySeat.seat)] !== undefined;
+      const iHaveColor = !!mySeat && cp[String(mySeat.seat)] !== undefined;
+
       html += `<div style="margin-top:8px;font-size:13px;font-weight:bold;">
-        盤面を見ながら、第1〜${d.queue.length}ターン目の順番を選んでください（上の選択順に選びます）</div>`;
-      // seat -> chosen number
+        盤面を見ながら、順番とコマの色を選んでください（ダイスの大きい順に、1人ずつ）</div>`;
+      // turn numbers
       const taken = {};
       for (const k of Object.keys(d.slots)) taken[d.slots[k]] = Number(k);
       html += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">';
@@ -513,51 +519,39 @@
         const ownerSeat = (taken[n] !== undefined) ? taken[n] : null;
         const owner = ownerSeat !== null ? (d.queue.find(x => x.seat === ownerSeat) || {}).name : null;
         const mine = ownerSeat !== null && mySeat && ownerSeat === mySeat.seat;
-        const myPickTurn = mySeat && d.current_picker === mySeat.seat;
-        const alreadyPicked = mySeat && d.slots[String(mySeat.seat)] !== undefined;
         // the current picker may take any free number; a player who already
         // picked may still switch to another free number before starting
-        const canClick = ownerSeat === null && !!mySeat && (myPickTurn || alreadyPicked);
+        const canClick = ownerSeat === null && !!mySeat && (myTurn || iHaveSlot);
         html += `<button class="slot${owner ? ' taken' : ''}${mine ? ' mine' : ''}"
           data-slot="${n}" ${canClick ? '' : 'disabled'}>
           <b>${n}番目</b><br><span>${owner ? esc(owner) : '空き'}</span></button>`;
       }
       html += '</div>';
-      const stage = d.stage || 'slots';
-      const qname = seat => esc((d.queue.find(x => x.seat === seat) || {}).name || '');
-      if (mySeat && stage === 'slots') {
-        if (d.current_picker === mySeat.seat)
-          html += `<div class="order" style="color:#ffd54f;">▶ あなたの番です。好きな番号を選んでください</div>`;
-        else
-          html += `<div class="order">待機中…（${qname(d.current_picker)} の番）</div>`;
-      }
 
-      // stage 2: colours, same dice order
+      // colours - chosen by the same player right after their turn number
       html += `<div style="margin-top:10px;font-size:13px;font-weight:bold;">
-        コマの色（同じダイス順に選びます）</div>`;
-      const cp = d.colors || {};
+        コマの色</div>`;
       const ownerOf = {};
       for (const k of Object.keys(cp)) ownerOf[cp[k]] = Number(k);
       html += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">';
       for (const c of COLOR_ORDER) {
         const ownerSeat = (ownerOf[c] !== undefined) ? ownerOf[c] : null;
         const mine = ownerSeat !== null && !!mySeat && ownerSeat === mySeat.seat;
-        const myTurn = !!mySeat && stage === 'colors' && d.color_picker === mySeat.seat;
-        const already = !!mySeat && cp[String(mySeat.seat)] !== undefined;
-        const canClick = ownerSeat === null && stage === 'colors' && (myTurn || already);
+        const canClick = ownerSeat === null && !!mySeat &&
+          ((myTurn && iHaveSlot) || iHaveColor);
         html += `<button class="color-btn${mine ? ' on' : ''}" data-color="${c}" ${canClick ? '' : 'disabled'}>
           <span class="cs" style="background:${COLOR_HEX[c]}"></span>${COLOR_JA[c]}` +
           (ownerSeat !== null ? `：${qname(ownerSeat)}` : '') + `</button>`;
       }
       html += '</div>';
       if (mySeat) {
-        if (stage === 'colors') {
-          if (d.color_picker === mySeat.seat)
-            html += `<div class="order" style="color:#ffd54f;">▶ あなたの番です。コマの色を選んでください</div>`;
-          else
-            html += `<div class="order">色の選択待ち…（${qname(d.color_picker)} の番）</div>`;
-        } else if (stage === 'done') {
+        if ((d.stage || 'draft') === 'done') {
           html += `<div class="order">全員が番号と色を選びました。ゲーム開始できます。</div>`;
+        } else if (myTurn) {
+          html += `<div class="order" style="color:#ffd54f;">▶ あなたの番です。` +
+            (iHaveSlot ? 'コマの色を選んでください' : '番号を選んでください') + `</div>`;
+        } else {
+          html += `<div class="order">待機中…（${qname(d.current_picker)} の番）</div>`;
         }
       }
     }

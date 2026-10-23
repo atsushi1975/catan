@@ -52,8 +52,8 @@ def fresh_started_room():
     totals = {i: sum(seats[i]["roll"]) for i in range(len(seats))}
     order = sorted(totals, key=lambda i: -totals[i])
     handle_lobby("room_pick", {"token": toks[order[0]], "slot": 1})
-    handle_lobby("room_pick", {"token": toks[order[1]], "slot": 2})
     handle_lobby("room_color", {"token": toks[order[0]], "color": "red"})
+    handle_lobby("room_pick", {"token": toks[order[1]], "slot": 2})
     handle_lobby("room_color", {"token": toks[order[1]], "color": "blue"})
     handle_lobby("room_start", {"token": ta})
     # give the players something worth hiding
@@ -193,8 +193,8 @@ seats = ROOM["seats"]
 toks = [a["token"], b["token"]]
 order = sorted(range(2), key=lambda i: -sum(seats[i]["roll"]))
 handle_lobby("room_pick", {"token": toks[order[0]], "slot": 1})
-handle_lobby("room_pick", {"token": toks[order[1]], "slot": 2})
 handle_lobby("room_color", {"token": toks[order[0]], "color": "red"})
+handle_lobby("room_pick", {"token": toks[order[1]], "slot": 2})
 handle_lobby("room_color", {"token": toks[order[1]], "color": "blue"})
 handle_lobby("room_start", {"token": a["token"]})
 
