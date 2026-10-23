@@ -127,6 +127,34 @@
     const b = readMap(BKEY);
     return !!(id && b[id] && Date.now() - b[id] < TAB_ALIVE_MS);
   }
+  // A tab that is closed a second ago still has a fresh heartbeat, so a beat
+  // alone cannot tell "closed" from "open". Ask the other tabs directly: a tab
+  // that is really open answers the ping, a closed one cannot.
+  let bc = null;
+  const pongs = new Set();
+  try { bc = new BroadcastChannel('catan_tabs'); } catch (e) { bc = null; }
+  if (bc) {
+    bc.onmessage = ev => {
+      const d = ev.data || {};
+      if (d.t === 'ping') { try { bc.postMessage({ t: 'pong', id: tabId() }); } catch (e) {} }
+      else if (d.t === 'pong' && d.id && d.id !== tabId()) pongs.add(d.id);
+    };
+  }
+  // true: another tab answered, false: nobody did (we are alone), null: cannot tell
+  function anyLiveTab() {
+    if (!bc) return Promise.resolve(null);
+    pongs.clear();
+    try { bc.postMessage({ t: 'ping' }); } catch (e) { return Promise.resolve(null); }
+    return new Promise(res => setTimeout(() => res(pongs.size > 0), 600));
+  }
+  // A closed tab should not look alive: drop our beat when the page goes away.
+  window.addEventListener('pagehide', () => {
+    try {
+      const b = readMap(BKEY);
+      delete b[tabId()];
+      writeMap(BKEY, b);
+    } catch (e) {}
+  });
   function readTokens() { return readMap(TKEY); }
   function getToken() {
     const m = readTokens();
@@ -140,35 +168,60 @@
       m[id] = t;
       writeMap(LKEY, { token: t, tabId: id, at: Date.now() });
     } else {
+      // Only the tab's own entry goes away. The "last seat" memory is kept on
+      // purpose: a bad poll must never make the seat unrecoverable.
       delete m[id];
-      const last = lastSeat();
-      if (last && last.tabId === id) writeMap(LKEY, {});
     }
     writeMap(TKEY, m);
   }
-  // The tab id did not survive the wake-up: re-claim the last seat this browser
-  // used, but only if the server still knows that seat.
-  async function recoverSeat() {
+  function forgetSeat() { writeMap(LKEY, {}); }
+  // Every stored token is a candidate (the "last seat" one first). Tokens owned
+  // by a tab that is still alive are excluded so a second tab cannot steal a
+  // player's seat. When we know for sure that no other tab is open
+  // (`alone === true`), the heartbeat check is skipped - a tab that was closed
+  // a moment ago still has a fresh beat and must not block the recovery.
+  function candidateTokens(alone) {
+    const out = [];
+    const live = k => !alone && tabAlive(k);
     const last = lastSeat();
-    if (!last || !last.token) return false;
-    if (last.tabId !== tabId() && tabAlive(last.tabId)) return false;
-    let r = null;
-    try {
-      r = await fetch('/room?token=' + encodeURIComponent(last.token)).then(x => x.json());
-    } catch (e) { return false; }
-    if (!r || !r.seats) return false;
-    if (r.you_seat === null || r.you_seat === undefined) return false;
-    token = last.token;
-    setToken(token);
-    // Drop the old key if it still holds the same seat (it belongs to a tab id
-    // that no longer exists).
+    const id = tabId();
+    if (last && last.token) out.push(last.token);
     const m = readTokens();
-    let cleaned = false;
     for (const k of Object.keys(m)) {
-      if (k !== tabId() && m[k] === token) { delete m[k]; cleaned = true; }
+      if (!m[k]) continue;
+      if (k !== id && live(k)) continue;    // a live tab owns this one
+      out.push(m[k]);
     }
-    if (cleaned) writeMap(TKEY, m);
-    return true;
+    if (last && last.token && last.tabId !== id && live(last.tabId)) {
+      const i = out.indexOf(last.token);
+      if (i >= 0) out.splice(i, 1);
+    }
+    return out.filter((t, i, a) => a.indexOf(t) === i);
+  }
+  // The tab id did not survive the wake-up: re-claim a seat this browser used,
+  // but only if the server still knows that seat.
+  async function recoverSeat() {
+    const others = await anyLiveTab();
+    for (const tok of candidateTokens(others === false)) {
+      let r = null;
+      try {
+        r = await fetch('/room?token=' + encodeURIComponent(tok)).then(x => x.json());
+      } catch (e) { return false; }
+      if (!r || !r.seats) return false;
+      if (r.you_seat === null || r.you_seat === undefined) continue;
+      token = tok;
+      setToken(tok);
+      // Drop other keys holding the same seat: they belong to tab ids that no
+      // longer exist.
+      const m = readTokens();
+      let cleaned = false;
+      for (const k of Object.keys(m)) {
+        if (k !== tabId() && m[k] === tok) { delete m[k]; cleaned = true; }
+      }
+      if (cleaned) writeMap(TKEY, m);
+      return true;
+    }
+    return false;
   }
 
   let token = getToken();
@@ -222,6 +275,12 @@
   function renderPlayingNotice(r) {
     const body = document.getElementById('lobby-body');
     const seats = (r.seats || []).map(s => esc(s.name)).join('、');
+    // Diagnostics: enough to tell WHY the seat could not be taken back, without
+    // ever printing the token itself.
+    const seen = candidateTokens().length;
+    const diag = `診断: トークン=${token ? 'あり' : 'なし'} / 復帰候補=${seen} / ` +
+                 `応答 you_seat=${r.you_seat === null || r.you_seat === undefined ? 'null' : r.you_seat} / ` +
+                 `参加者=${(r.seats || []).length}`;
     body.innerHTML = `<div class="muted">ゲーム進行中です（参加者: ${seats || '—'}）</div>
       <div class="order" style="color:#ffd54f;margin-top:8px;">
         このブラウザはこのゲームの席を持っていません。<br>
@@ -230,12 +289,21 @@
       </div>
       <div style="margin-top:12px;">
         <button class="btn" id="btn-reload">再読み込み</button>
+        <button class="btn" id="btn-retry">復帰を再試行</button>
         <a class="btn" href="/monitor" target="_blank" style="text-decoration:none;">監視画面を開く</a>
-      </div>`;
+      </div>
+      <div class="muted" style="font-size:11px;margin-top:10px;">${esc(diag)}</div>`;
     body.dataset.built = '1';
     lastKey = null;
     const b = document.getElementById('btn-reload');
     if (b) b.onclick = () => location.reload();
+    const t = document.getElementById('btn-retry');
+    if (t) t.onclick = async () => {
+      t.disabled = true;
+      const ok = await recoverSeat();
+      if (ok) location.reload();
+      else { alert('復帰できませんでした。\n' + diag); t.disabled = false; }
+    };
   }
 
   async function renderLobby() {
@@ -446,7 +514,7 @@
         if (!res.ok) { alert(res.error || '退出できませんでした'); return; }
         // Leave the seat on the server first, then forget the token locally so
         // the next load shows the (empty) name field.
-        setToken(null); token = null; location.reload();
+        setToken(null); token = null; forgetSeat(); location.reload();
       };
     }
     // turn-slot draft
