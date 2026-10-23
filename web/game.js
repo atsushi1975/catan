@@ -351,23 +351,39 @@ function drawDie(cx, cy, side, value) {
 // all show no dice.
 //
 // Placement: the dice sit in the top-right corner of the sea, but are kept
-// clear of the port labels (ports carry information, so the dice never cover
+// clear of the port marks (ports carry information, so the dice never cover
 // them). Candidate spots are tried from the corner inwards/downwards and the
-// first one that does not touch a port label wins.
-function _portLabelBoxes(b) {
+// first one that does not touch a port mark wins.
+//
+// Port geometry ("plan D"): a port sits on a coastal edge, and two short lines
+// run from that edge's ends straight out to sea. A small mark (ship = 3:1,
+// resource = 2:1) floats at their tip. Nothing is drawn ON the edge, so a port
+// can never be mistaken for a road.
+function _portGeom(pe) {
+  const p1 = toCanvas({x:pe.x1, y:pe.y1});
+  const p2 = toCanvas({x:pe.x2, y:pe.y2});
+  const mid = {x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2};
+  const dx = p2.x - p1.x, dy = p2.y - p1.y;
+  const len = Math.hypot(dx, dy) || 1;
+  let nx = -dy / len, ny = dx / len;          // edge normal
+  // keep the normal pointing away from the middle of the board (= out to sea)
+  if ((mid.x - canvas.width / 2) * nx + (mid.y - canvas.height / 2) * ny < 0) {
+    nx = -nx; ny = -ny;
+  }
+  const L = Math.max(9, scale * 0.5);         // pier length
+  const r = Math.max(9, scale * 0.28);        // mark radius
+  const gap = Math.max(2, scale * 0.10);
+  const tip = {x: mid.x + nx * (L + gap + r), y: mid.y + ny * (L + gap + r)};
+  return {p1, p2, mid, nx, ny, L, r, tip};
+}
+
+function _portMarkBoxes(b) {
   const boxes = [];
   for (const pe of (b.port_edges || [])) {
-    const p1 = toCanvas({x:pe.x1, y:pe.y1});
-    const p2 = toCanvas({x:pe.x2, y:pe.y2});
-    const mid = {x:(p1.x+p2.x)/2, y:(p1.y+p2.y)/2};
-    let ox = mid.x - canvas.width/2, oy = mid.y - canvas.height/2;
-    const ol = Math.hypot(ox, oy) || 1;
-    ox /= ol; oy /= ol;
-    const lx = mid.x + ox*scale*0.9, ly = mid.y + oy*scale*0.9;
-    const txt = portLabel(pe.type);
-    ctx.font = 'bold 11px sans-serif';
-    const tw = ctx.measureText(txt).width + 8;
-    boxes.push({ x1: lx - tw/2, y1: ly - 9, x2: lx + tw/2, y2: ly + 9 });
+    const g = _portGeom(pe);
+    // a little slack so a die never touches the icon's stroke
+    const r = g.r * 1.1;
+    boxes.push({ x1: g.tip.x - r, y1: g.tip.y - r, x2: g.tip.x + r, y2: g.tip.y + r });
   }
   return boxes;
 }
@@ -387,7 +403,7 @@ function dicePlacement() {
   const groupW = side * 2 + gap;
   const groupH = side;
   const pad = side * 0.4;
-  const labels = _portLabelBoxes(state.board || {});
+  const labels = _portMarkBoxes(state.board || {});
   // The sea square is CENTRED in the canvas (see drawSea), so the dice must be
   // placed relative to the sea, not to the canvas.
   // BUT the sea is often TALLER than the canvas (scale is limited by height:
@@ -875,9 +891,182 @@ function drawRoadBar(p0, p1, color, width, inset) {
   ctx.stroke();
   ctx.restore();
 }
-function portLabel(type) {
-  if (type === 'generic') return '3:1';
-  return '2:1 ' + resName(type);
+// ---------------------------------------------------------------------------
+// Port / resource marks (vector, no images)
+//   Deliberately small and text-free: a ship means 3:1, a resource means 2:1.
+//   Keeping the ratio as an icon (not a label box) is what stops the rim of the
+//   board from turning into a wall of text.
+// ---------------------------------------------------------------------------
+function _markShadow() {
+  // a soft dark halo keeps a light icon readable on the sea texture
+  ctx.shadowColor = 'rgba(0,0,0,0.75)';
+  ctx.shadowBlur = Math.max(2, scale * 0.05);
+}
+
+function drawShipIcon(x, y, s) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  _markShadow();
+  const lw = Math.max(1, s * 0.14);
+  // hull
+  ctx.beginPath();
+  ctx.moveTo(-s, s * 0.12);
+  ctx.lineTo(s, s * 0.12);
+  ctx.lineTo(s * 0.6, s * 0.66);
+  ctx.lineTo(-s * 0.6, s * 0.66);
+  ctx.closePath();
+  ctx.fillStyle = '#a1887f';
+  ctx.fill();
+  ctx.shadowColor = 'transparent';
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = lw;
+  ctx.stroke();
+  // mast
+  ctx.beginPath();
+  ctx.moveTo(0, s * 0.12);
+  ctx.lineTo(0, -s * 1.0);
+  ctx.stroke();
+  // sail
+  ctx.beginPath();
+  ctx.moveTo(s * 0.1, -s * 0.95);
+  ctx.lineTo(s * 0.1, -s * 0.12);
+  ctx.lineTo(s * 0.9, -s * 0.5);
+  ctx.closePath();
+  ctx.fillStyle = '#fffdf5';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+  ctx.stroke();
+  ctx.restore();
+}
+
+// kind: wood / brick / sheep / wheat / ore
+function drawResourceIcon(kind, x, y, s) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  _markShadow();
+  const lw = Math.max(1, s * 0.12);
+  if (kind === 'wood') {
+    // two logs lying side by side (pale cut faces to the left): a single log
+    // looked like a random bar, a pair reads as timber at a glance
+    const log = (dy, rot) => {
+      ctx.save();
+      ctx.translate(0, dy);
+      ctx.rotate(rot);
+      ctx.beginPath();
+      _roundRect(ctx, -s * 0.92, -s * 0.23, s * 1.84, s * 0.46, s * 0.23);
+      ctx.fillStyle = '#a1724a';
+      ctx.fill();
+      ctx.shadowColor = 'transparent';
+      ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+      ctx.lineWidth = Math.max(1, s * 0.1);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(-s * 0.62, 0, s * 0.21, 0, Math.PI * 2);
+      ctx.fillStyle = '#e6cfa8';
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    };
+    log(-s * 0.25, -Math.PI / 18);
+    log(s * 0.25, -Math.PI / 18);
+  } else if (kind === 'brick') {
+    ctx.beginPath();
+    _roundRect(ctx, -s * 0.95, -s * 0.58, s * 1.9, s * 1.16, s * 0.14);
+    ctx.fillStyle = '#c0562b';
+    ctx.fill();
+    ctx.shadowColor = 'transparent';
+    ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+    ctx.lineWidth = lw;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(-s * 0.95, 0); ctx.lineTo(s * 0.95, 0);
+    ctx.moveTo(0, -s * 0.58); ctx.lineTo(0, 0);
+    ctx.stroke();
+  } else if (kind === 'sheep') {
+    // A ball of wool, NOT a sheep: the resource is 羊毛, and a sheep silhouette
+    // at 30 px just read as a cloud. Wound strands + a loose end say "wool".
+    const R = s * 0.86;
+    ctx.shadowColor = 'transparent';
+    ctx.beginPath();
+    ctx.arc(0, -s * 0.05, R, 0, Math.PI * 2);
+    ctx.fillStyle = '#f4ecd8';
+    ctx.fill();
+    ctx.strokeStyle = '#3e2723';
+    ctx.lineWidth = Math.max(1.2, s * 0.13);
+    ctx.stroke();
+    // wound yarn, clipped to the ball
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(0, -s * 0.05, R, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.strokeStyle = '#c3ad84';
+    ctx.lineWidth = Math.max(1, s * 0.11);
+    for (const k of [-0.5, 0, 0.5]) {
+      ctx.beginPath();
+      ctx.ellipse(k * R * 0.75, -s * 0.05, R * 0.62, R * 1.05, 0.55, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.restore();
+    // the loose end trailing out of the ball
+    ctx.strokeStyle = '#c3ad84';
+    ctx.lineWidth = Math.max(1, s * 0.12);
+    ctx.beginPath();
+    ctx.moveTo(R * 0.6, -s * 0.05 + R * 0.6);
+    ctx.quadraticCurveTo(R * 1.05, R * 0.95, R * 1.4, R * 0.7);
+    ctx.stroke();
+  } else if (kind === 'wheat') {
+    ctx.strokeStyle = '#d9a300';
+    ctx.lineWidth = Math.max(1, s * 0.16);
+    ctx.beginPath();
+    ctx.moveTo(0, s * 0.98);
+    ctx.lineTo(0, -s * 0.75);
+    ctx.stroke();
+    ctx.shadowColor = 'transparent';
+    ctx.fillStyle = '#f6c445';
+    for (let i = 0; i < 3; i++) {
+      const yy = -s * 0.62 + i * s * 0.34;
+      for (const side of [-1, 1]) {
+        ctx.beginPath();
+        ctx.ellipse(side * s * 0.24, yy, s * 0.17, s * 0.3, side * 0.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  } else if (kind === 'ore') {
+    // Two iron ingots (a single one read as a bar, not as metal): trapezoid
+    // body + bright top face each, the front one overlapping the back one.
+    const bar = (cx, cy, w, h) => {
+      ctx.beginPath();
+      ctx.moveTo(cx - w * 0.62, cy - h);
+      ctx.lineTo(cx + w * 0.62, cy - h);
+      ctx.lineTo(cx + w, cy);
+      ctx.lineTo(cx - w, cy);
+      ctx.closePath();
+      ctx.fillStyle = '#7c8b95';
+      ctx.fill();
+      ctx.shadowColor = 'transparent';
+      ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+      ctx.lineWidth = lw;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(cx - w * 0.62, cy - h);
+      ctx.lineTo(cx + w * 0.62, cy - h);
+      ctx.lineTo(cx + w * 0.8, cy - h * 0.42);
+      ctx.lineTo(cx - w * 0.8, cy - h * 0.42);
+      ctx.closePath();
+      ctx.fillStyle = '#d5dee2';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+      ctx.lineWidth = Math.max(1, lw * 0.6);
+      ctx.stroke();
+    };
+    bar(s * 0.26, -s * 0.02, s * 0.62, s * 0.33);   // back bar (upper right)
+    bar(-s * 0.2, s * 0.34, s * 0.78, s * 0.45);    // front bar (lower left)
+  }
+  ctx.restore();
 }
 
 function resize() {
@@ -1046,45 +1235,31 @@ function render() {
   drawDice();         // the current roll, always visible bottom-right
 }
 
+// Two thin lines from the ends of the port edge out to sea. No line along the
+// coast itself: that is what keeps a port visually separate from a road.
 function drawPorts(b) {
+  ctx.save();
+  ctx.strokeStyle = 'rgba(150,120,105,0.9)';
+  ctx.lineWidth = Math.max(2.5, scale * 0.055);
+  ctx.lineCap = 'round';
   for (const pe of (b.port_edges || [])) {
-    const p1 = toCanvas({x:pe.x1, y:pe.y1});
-    const p2 = toCanvas({x:pe.x2, y:pe.y2});
-    const mid = {x:(p1.x+p2.x)/2, y:(p1.y+p2.y)/2};
-    const ccx = canvas.width/2, ccy = canvas.height/2;
-    let ox = mid.x - ccx, oy = mid.y - ccy;
-    const ol = Math.hypot(ox, oy) || 1;
-    ox /= ol; oy /= ol;
-    ctx.strokeStyle = '#8d6e63'; ctx.lineWidth = 4;
-    ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
+    const g = _portGeom(pe);
     ctx.beginPath();
-    ctx.moveTo(mid.x, mid.y);
-    ctx.lineTo(mid.x + ox*scale*0.55, mid.y + oy*scale*0.55);
+    ctx.moveTo(g.p1.x, g.p1.y);
+    ctx.lineTo(g.p1.x + g.nx * g.L, g.p1.y + g.ny * g.L);
+    ctx.moveTo(g.p2.x, g.p2.y);
+    ctx.lineTo(g.p2.x + g.nx * g.L, g.p2.y + g.ny * g.L);
     ctx.stroke();
   }
+  ctx.restore();
 }
 
-// Drawn last (on top of roads/buildings) so a port's ratio is always readable.
+// Drawn last (on top of roads/buildings) so a port mark is never hidden.
 function drawPortLabels(b) {
   for (const pe of (b.port_edges || [])) {
-    const p1 = toCanvas({x:pe.x1, y:pe.y1});
-    const p2 = toCanvas({x:pe.x2, y:pe.y2});
-    const mid = {x:(p1.x+p2.x)/2, y:(p1.y+p2.y)/2};
-    const ccx = canvas.width/2, ccy = canvas.height/2;
-    let ox = mid.x - ccx, oy = mid.y - ccy;
-    const ol = Math.hypot(ox, oy) || 1;
-    ox /= ol; oy /= ol;
-    const lx = mid.x + ox*scale*0.9, ly = mid.y + oy*scale*0.9;
-    const txt = portLabel(pe.type);
-    ctx.font = 'bold 11px sans-serif';
-    const tw = ctx.measureText(txt).width + 8;
-    ctx.fillStyle = 'rgba(0,0,0,0.75)';
-    ctx.fillRect(lx - tw/2, ly - 9, tw, 18);
-    ctx.strokeStyle = '#fff'; ctx.lineWidth = 1;
-    ctx.strokeRect(lx - tw/2, ly - 9, tw, 18);
-    ctx.fillStyle = '#fff';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(txt, lx, ly);
+    const g = _portGeom(pe);
+    if (pe.type === 'generic') drawShipIcon(g.tip.x, g.tip.y, g.r * 0.8);
+    else drawResourceIcon(pe.type, g.tip.x, g.tip.y, g.r * 0.75);
   }
 }
 
@@ -1924,8 +2099,13 @@ window.CatanGame = {
   // test hooks: a single die face and the whole 2d6 group
   _debugDrawDie: (px, py, side, value) => drawDie(px, py, side, value),
   _debugDrawDice: () => drawDice(),
+  // test hooks: one port mark (ship for "generic", else a resource)
+  _debugDrawPortIcon: (type, px, py, s) => {
+    if (type === 'generic') drawShipIcon(px, py, s);
+    else drawResourceIcon(type, px, py, s);
+  },
   // test hooks: geometry used to keep the dice clear of the ports
-  _debugPortLabelBoxes: () => _portLabelBoxes(state.board || {}),
+  _debugPortMarkBoxes: () => _portMarkBoxes(state.board || {}),
   _debugDicePlacement: () => dicePlacement(),
   // test hooks: the mobile action sheet
   _debugBarOpened: () => barOpened(),
