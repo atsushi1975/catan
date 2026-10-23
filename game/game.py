@@ -26,13 +26,14 @@ def _ja(r):
 class Game:
     COLORS = ["red", "blue", "white", "orange"]
 
-    def __init__(self, num_players=4, seed=None, names=None, desert="coast_ng",
+    def __init__(self, num_players=4, seed=None, names=None, colors=None, desert="coast_ng",
                  numbers="official", victory_target=None):
         self.seed = seed
         self.rng = random.Random(seed)
         self.board = Board(seed=seed, desert=desert, numbers=numbers)
         self.players = [
-            Player(i, (names[i] if names and i < len(names) and names[i] else f"プレイヤー{i+1}"), self.COLORS[i])
+            Player(i, (names[i] if names and i < len(names) and names[i] else f"プレイヤー{i+1}"),
+                   (colors[i] if colors and i < len(colors) and colors[i] else self.COLORS[i]))
             for i in range(num_players)
         ]
         self.num_players = num_players

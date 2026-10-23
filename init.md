@@ -500,3 +500,17 @@ v27 の後に「ブラウザを完全終了 → 起動」で復帰できない�
   `innerHeight`）を `--app-h` に反映。`resize` / `orientationchange` / `visualViewport.resize`
   で更新する。
 - v33 で診断行に `w:`（innerWidth）/ `side:`（sidebar の display）/ `cls:`（body のクラス）を追加。
+
+## v35: ダイスの上端見切れ
+- 拡大率は高さ基準（`height/10`）だが海の四角は 11.2 単位なので、海は常にキャンバスより
+  縦に大きい＝海の上端は画面外。v30 でダイスを「海の右上」基準にしたため上側が欠けていた
+  （パネルを開いて盤面が縮むと顕著。縦横比の話なので PC でも同じ）。
+- 修正: ダイス配置範囲を「海 ∩ キャンバス」に限定（`dicePlacement()`）。
+
+## v36: コマの色をプレイヤーが選ぶ
+- ロビーで自分の席の色を選べる（赤・青・白・オレンジ、重複不可）。
+- サーバー: `room_color` アクション。`ROOM["seats"][i]["color"]` に色名（red/blue/white/orange）
+  を保存し、`serialize_room()` が返す。開始時に手番順へ並べ替えて `Game(colors=...)` に渡し、
+  各 `Player.color` に入れる。
+- クライアント: ロビーに色ボタン、席一覧にスウォッチ。`game.js` の `playerColor(id)` は
+  `state.players[].color`（色名）を hex に変換して使う。

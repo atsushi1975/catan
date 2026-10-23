@@ -67,6 +67,23 @@ ROOM = {
         "victory": 10,          # 10 | 7
     },
 }
+
+# Player colours. Each seat picks one in the lobby (all different); the game
+# itself only stores the name, and the browser maps it to a hex value.
+PLAYER_COLORS = ("red", "blue", "white", "orange")
+COLOR_LABELS = {
+    "red": "赤", "blue": "青", "white": "白", "orange": "オレンジ",
+}
+
+
+def _free_color(seats):
+    """First colour not used by another seat (seat order = preference order)."""
+    used = {s.get("color") for s in seats}
+    for i, c in enumerate(PLAYER_COLORS):
+        if c not in used:
+            return c
+    return PLAYER_COLORS[0]
+
 LOCK = threading.RLock()
 
 # ---------------------------------------------------------------------------
@@ -244,6 +261,7 @@ def serialize_room(token=None):
         "name": s.get("name") or f"プレイヤー{i+1}",
         "roll": s.get("roll"),
         "total": (sum(s["roll"]) if s.get("roll") else None),
+        "color": s.get("color") or PLAYER_COLORS[i % len(PLAYER_COLORS)],
     } for i, s in enumerate(ROOM["seats"])]
     order = None
     if ROOM["phase"] == "playing" and ROOM["order"]:
@@ -499,7 +517,9 @@ def handle_lobby(action, payload):
             if len(ROOM["seats"]) >= 4:
                 return {"ok": False, "error": "room is full"}
             tok = _new_token()
-            ROOM["seats"].append({"token": tok, "name": name or f"プレイヤー{len(ROOM['seats'])+1}",
+            ROOM["seats"].append({"token": tok,
+                                  "name": name or f"プレイヤー{len(ROOM['seats'])+1}",
+                                  "color": _free_color(ROOM["seats"]),
                                   "roll": None})
             _sync_board()      # drop a preview whose player count is now wrong
             if ROOM["g"] is None and len(ROOM["seats"]) >= 2:
@@ -571,6 +591,23 @@ def handle_lobby(action, payload):
                 return {"ok": False, "error": "順番がまだ来ていません"}
             slots[seat] = n
             return {"ok": True, "seat": seat, "slot": n}
+    if action == "room_color":
+        # Lobby: pick the colour of your own pieces. Two seats may not share a
+        # colour, and the choice must be made before the game starts.
+        with LOCK:
+            seat = _seat_of(token)
+            if seat is None:
+                return {"ok": False, "error": "not joined"}
+            if ROOM["phase"] != "lobby":
+                return {"ok": False, "error": "ゲーム中は変更できません"}
+            color = payload.get("color")
+            if color not in PLAYER_COLORS:
+                return {"ok": False, "error": "不正な色です"}
+            for i, s in enumerate(ROOM["seats"]):
+                if i != seat and s.get("color") == color:
+                    return {"ok": False, "error": "その色は既に使われています"}
+            ROOM["seats"][seat]["color"] = color
+            return {"ok": True, "color": color}
     if action == "room_setting":
         with LOCK:
             if ROOM["phase"] != "lobby":
@@ -618,14 +655,18 @@ def handle_lobby(action, payload):
             order = sorted(q, key=lambda i: slots[i])
             ROOM["order"] = order
             names = [seats[i].get("name") or f"プレイヤー{i+1}" for i in order]
+            colors = [seats[i].get("color") or PLAYER_COLORS[i % len(PLAYER_COLORS)]
+                      for i in order]
             # Reuse the board the players were looking at during the draft.
             g = _ensure_board()
             if g is None:
                 g = ROOM["g"] = Game(num_players=len(seats), seed=None, names=names,
-                                     desert=_desert_mode(), numbers=_numbers_mode(),
+                                     colors=colors, desert=_desert_mode(),
+                                     numbers=_numbers_mode(),
                                      victory_target=_victory_target())
             for i, p in enumerate(g.players):
                 p.name = names[i]
+                p.color = colors[i]
             ROOM["phase"] = "playing"
             return {"ok": True, "order": order}
     return None

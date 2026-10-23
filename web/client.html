@@ -39,6 +39,14 @@
     gap: 4px; cursor: pointer; }
   #lobby .radio input { accent-color: #4caf50; }
   #lobby .rules-note { margin-top: 6px; font-size: 11px; color: #888; }
+  /* piece colour picker */
+  #lobby .cs { display: inline-block; width: 12px; height: 12px; border-radius: 3px;
+    border: 1px solid #888; margin-right: 6px; vertical-align: -1px; }
+  #lobby .color-btn { display: inline-flex; align-items: center; gap: 2px; padding: 5px 9px;
+    border-radius: 6px; border: 1px solid #555; background: #202020; color: #eee;
+    font-size: 12px; font-family: inherit; cursor: pointer; }
+  #lobby .color-btn.on { border-color: #4caf50; box-shadow: 0 0 0 1px #4caf50; }
+  #lobby .color-btn:disabled { opacity: .45; cursor: not-allowed; }
   /* Lobby board preview: the map is drawn above the lobby panel so the turn
      order can be chosen while looking at the board that will be played. */
   body.preview { display: flex; flex-direction: column; min-height: 100vh;
@@ -229,7 +237,7 @@
   let booted = false;
   let lastRecoverTry = 0;
   let lastRoom = null;      // last successful /room answer, for diagLine()
-  const VERSION = 'v35';   // shown by diagLine(); bump whenever the client changes
+  const VERSION = 'v36';   // shown by diagLine(); bump whenever the client changes
   // Android chrome often shows/hides the URL bar and the viewport height
   // reported by 100vh/100dvh does not match what is actually visible, which
   // pushed the bottom action sheet off-screen. Keep a CSS variable in sync so
@@ -323,6 +331,12 @@
   function setTitle(name) {
     document.title = name ? ('カタン（プレイヤー：' + name + '）') : 'カタン（プレイヤー）';
   }
+
+  // piece colours (names come from the server, so every tab agrees)
+  const COLOR_HEX = { red: '#e53935', blue: '#1e88e5', white: '#ffffff', orange: '#fb8c00' };
+  const COLOR_JA  = { red: '赤', blue: '青', white: '白', orange: 'オレンジ' };
+  const COLOR_ORDER = ['red', 'blue', 'white', 'orange'];
+  const colorOf = s => (s && COLOR_HEX[s.color]) ? s.color : 'red';
 
   let lastKey = null;
 
@@ -474,9 +488,29 @@
     // seat list
     for (const s of r.seats) {
       const me = mySeat && s.seat === mySeat.seat;
+      const col = colorOf(s);
       html += `<div class="row${me ? ' me' : ''}"><span class="seat">${s.seat + 1}</span>
-        <span class="name">${esc(s.name)}${me ? ' <span class="muted">(あなた)</span>' : ''}</span>
+        <span class="name"><span class="cs" style="background:${COLOR_HEX[col]}"></span>${esc(s.name)}${me ? ' <span class="muted">(あなた)</span>' : ''}</span>
         <span class="roll">${s.roll ? s.roll[0] + '+' + s.roll[1] + ' = ' + s.total : '未振り'}</span></div>`;
+    }
+
+    // colour picker for your own seat (all colours must differ)
+    if (mySeat) {
+      const mine = colorOf(mySeat);
+      const usedBy = {};
+      for (const s of r.seats) {
+        if (s.seat !== mySeat.seat && s.color) usedBy[s.color] = s.name;
+      }
+      html += `<div class="order">あなたのコマの色</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">`;
+      for (const c of COLOR_ORDER) {
+        const taken = !!usedBy[c];
+        const on = mine === c;
+        html += `<button class="color-btn${on ? ' on' : ''}" data-color="${c}"
+          ${taken ? 'disabled' : ''} title="${taken ? esc(usedBy[c]) + 'が使用中' : COLOR_JA[c]}">
+          <span class="cs" style="background:${COLOR_HEX[c]}"></span>${COLOR_JA[c]}</button>`;
+      }
+      html += '</div>';
     }
 
     // pick order (by dice) - and, once everyone rolled, the turn-slot draft
@@ -591,6 +625,15 @@
         setToken(null); token = null; forgetSeat(); location.reload();
       };
     }
+    // piece colours
+    body.querySelectorAll('button[data-color]').forEach(b => {
+      b.onclick = async () => {
+        const res = await act('room_color', { color: b.dataset.color });
+        if (!res.ok) alert(res.error || '色を変更できませんでした');
+        lastKey = null;
+        renderLobby();
+      };
+    });
     // turn-slot draft
     if (mySeat && r.draft) {
       body.querySelectorAll('button[data-slot]').forEach(b => {

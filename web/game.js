@@ -707,9 +707,17 @@ function toCanvas(p) {
   if (!state) return p;
   return {x: canvas.width/2 + p.x*scale, y: canvas.height/2 + p.y*scale};
 }
+// Colour names come from the server (the lobby lets each seat pick one).
+const COLOR_HEX = {
+  red: '#e53935', blue: '#1e88e5', white: '#ffffff', orange: '#fb8c00',
+};
 function playerColor(id) {
-  const colors = ['#fb8c00','#1e88e5','#ffffff','#e53935'];
-  return colors[id] || '#888';
+  const p = (state && state.players)
+    ? state.players.find(x => x && x.id === id) : null;
+  if (p && p.color && COLOR_HEX[p.color]) return COLOR_HEX[p.color];
+  // fallback: the classic seat order
+  const byId = ['red', 'blue', 'white', 'orange'][id];
+  return COLOR_HEX[byId] || '#888';
 }
 
 // A darker shade of a player colour, used for the "side" faces of a piece so a
