@@ -228,7 +228,8 @@
   let token = getToken();
   let booted = false;
   let lastRecoverTry = 0;
-  const VERSION = 'v31';   // shown by diagLine(); bump whenever the client changes
+  let lastRoom = null;      // last successful /room answer, for diagLine()
+  const VERSION = 'v32';   // shown by diagLine(); bump whenever the client changes
   beat();
   setInterval(beat, 5000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) beat(); });
@@ -272,7 +273,10 @@
     let seat = 'n';
     try { seat = lastSeat().token ? 'y' : 'n'; } catch (e) {}
     d.textContent = VERSION + ' | token:' + (token ? 'y' : 'n') +
-      ' | saved:' + n + ' | seat:' + seat + ' | tab:' + tab;
+      ' | saved:' + n + ' | seat:' + seat + ' | tab:' + tab +
+      ' | ph:' + (lastRoom ? lastRoom.phase : '-') +
+      ' | ys:' + (lastRoom && lastRoom.you_seat !== null && lastRoom.you_seat !== undefined ? lastRoom.you_seat : '-') +
+      ' | boot:' + (booted ? 1 : 0);
   }
 
   function q(path) {
@@ -368,6 +372,7 @@
     // enter the board; anyone else (lost token after the phone discarded the
     // tab, or a fresh visitor) stays in the lobby. Joining mid-game is not
     // allowed by the server, so there is nothing useful to show them anyway.
+    lastRoom = r;
     if (r.phase === 'playing') {
       const hasSeat = token && r.you_seat !== null && r.you_seat !== undefined;
       if (hasSeat) { showGame(r); return; }

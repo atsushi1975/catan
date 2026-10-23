@@ -526,7 +526,30 @@ function handleEvents(events) {
 // A player page must never silently look like a spectator board. If the server
 // says the viewer has no seat, say so on screen instead of showing the hexes
 // with no explanation.
+// Same idea as the status line in client.html, but from game.js: after the
+// board boots we need to know what /state thinks of this browser (role/you).
+// The two used to disagree - /room said "seat ok" and /state said "spectator" -
+// and the page just bounced back to the lobby with no explanation.
+function diagGame() {
+  if (VIEW !== 'client') return;
+  let d = document.getElementById('g-diag');
+  if (!d) {
+    d = document.createElement('div');
+    d.id = 'g-diag';
+    d.style.cssText = 'position:fixed;right:4px;bottom:14px;z-index:70;font-size:10px;' +
+      'color:#7f9;pointer-events:none;text-shadow:0 0 2px #000';
+    document.body.appendChild(d);
+  }
+  const y = (state && state.you !== null && state.you !== undefined) ? state.you : '-';
+  d.textContent = 'g | you:' + y +
+    ' | role:' + (state ? state.role : '-') +
+    ' | ph:' + (state ? state.phase : '-') +
+    ' | cur:' + (state ? state.current : '-') +
+    ' | n:' + (state && state.players ? state.players.length : '-');
+}
+
 function updateRoleBanner() {
+  diagGame();
   if (VIEW !== 'client') return;
   const missing = !state || state.role === 'spectator';
   let bar = document.getElementById('role-bar');
