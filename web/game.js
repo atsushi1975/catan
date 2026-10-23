@@ -1197,13 +1197,13 @@ function render() {
       // Sized from `scale` so it stays proportional on a phone (it used to be
       // a fixed 19 px, which read too small next to the hexes).
       const chipR = Math.max(20, Math.round(scale * 0.34));
-      ctx.fillStyle = '#e3d4ac';
+      // Solid deeper beige (no lighter inner disc): at phone size the two-tone
+      // fill washed out and read almost white.
+      ctx.fillStyle = '#d6c08c';
       ctx.beginPath(); ctx.arc(cc.x, cc.y - 2, chipR, 0, Math.PI*2); ctx.fill();
       ctx.strokeStyle = (h.number===6||h.number===8) ? '#c00' : '#5b4a2a';
       ctx.lineWidth = Math.max(3, chipR * 0.14);
       ctx.beginPath(); ctx.arc(cc.x, cc.y - 2, chipR, 0, Math.PI*2); ctx.stroke();
-      ctx.fillStyle = '#f0e5c8';
-      ctx.beginPath(); ctx.arc(cc.x, cc.y - 2, chipR * 0.7, 0, Math.PI*2); ctx.fill();
       ctx.fillStyle = (h.number===6||h.number===8) ? '#c00' : '#000';
       ctx.font = `bold ${Math.max(17, Math.round(scale * 0.3))}px sans-serif`;
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
