@@ -84,7 +84,7 @@ def test_buy_dev_card():
         p.resources[R.SHEEP] = p.resources[R.WHEAT] = p.resources[R.ORE] = 1
         g.dev_deck = [card]
         check(g.buy_dev_card_action() == card.value, "P0 buys %s" % ja)
-        check(texts(g, 0) == ["発展カード『%s』を引きました(今ターンは使えません)" % ja],
+        check(texts(g, 0) == ["発展カード『%s』を引きました（今ターンは使えません）" % ja],
               "buyer sees the card name: %r" % texts(g, 0))
         check(all(texts(g, i) == [] for i in (1, 2, 3)), "%s: nobody else sees it" % ja)
     g = new_game()
@@ -92,7 +92,7 @@ def test_buy_dev_card():
     p.resources[R.SHEEP] = p.resources[R.WHEAT] = p.resources[R.ORE] = 1
     g.dev_deck = [DevCardType.VICTORY_POINT]
     g.buy_dev_card_action()
-    check(texts(g, 0) == ["発展カード『勝利点』を引きました(隠し持ちになります)"],
+    check(texts(g, 0) == ["発展カード『勝利点』を引きました（隠し持ちになります）"],
           "victory point card has its own wording: %r" % texts(g, 0))
     check(all(texts(g, i) == [] for i in (1, 2, 3)), "victory point: nobody else sees it")
 

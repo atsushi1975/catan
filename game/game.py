@@ -470,9 +470,9 @@ class Game:
         p.new_dev_cards.append(card.value)
         name = DEV_JA.get(card.value, card.value)
         if card == DevCardType.VICTORY_POINT:
-            self.add_private_event(p.id, f"発展カード『{name}』を引きました(隠し持ちになります)", "dev_draw")
+            self.add_private_event(p.id, f"発展カード『{name}』を引きました（隠し持ちになります）", "dev_draw")
         else:
-            self.add_private_event(p.id, f"発展カード『{name}』を引きました(今ターンは使えません)", "dev_draw")
+            self.add_private_event(p.id, f"発展カード『{name}』を引きました（今ターンは使えません）", "dev_draw")
         # VP cards count immediately
         if card == DevCardType.VICTORY_POINT:
             p.hidden_vp += 1
