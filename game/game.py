@@ -24,6 +24,12 @@ def _ja(r):
     return RES_JA.get(getattr(r, "value", r), getattr(r, "value", r))
 
 
+# Development card names, as the public log already calls them
+# (騎士カード / 街道建設カード / 収穫カード / 独占カード).
+DEV_JA = {"knight": "騎士", "victory_point": "勝利点", "road_building": "街道建設",
+          "year_of_plenty": "収穫", "monopoly": "独占"}
+
+
 class Game:
     COLORS = ["red", "blue", "white", "orange"]
 
@@ -77,6 +83,11 @@ class Game:
         # the win, ...). Clients diff by `id` to raise a toast / append a log
         # line. `text` is already localised for the UI.
         self.events = []
+        # Private events: information only ONE player may see (which resource
+        # was taken from / by them, which card they drew). Never put these in
+        # `events`. Served only to the matching viewer (app_core.serialize).
+        self.private_events = []
+        self._private_event_id = 0
         self._event_id = 0
 
     def add_event(self, text, kind="info"):
@@ -87,6 +98,15 @@ class Game:
         # Keep the list bounded; the UI only needs recent history.
         if len(self.events) > 60:
             del self.events[:-60]
+        return ev
+
+    def add_private_event(self, pid, text, kind="info"):
+        """Append an event that only player `pid` may see and return it."""
+        self._private_event_id += 1
+        ev = {"id": self._private_event_id, "to": pid, "text": text, "kind": kind}
+        self.private_events.append(ev)
+        if len(self.private_events) > 30:
+            del self.private_events[:-30]
         return ev
 
     def current_player(self):
@@ -325,6 +345,8 @@ class Game:
                 rt = self.rng.choice(avail)
                 victim.resources[rt] -= 1
                 thief.resources[rt] += 1
+                self.add_private_event(thief.id, f"{victim.name}から {_ja(rt)} を1枚奪いました", "steal")
+                self.add_private_event(victim.id, f"{thief.name}に盗賊で {_ja(rt)} を1枚取られました", "stolen")
                 self.add_event(f"{thief.name} が盗賊を ({q},{r}) に移動し、{victim.name} から 1 枚奪いました", "robber")
             else:
                 self.add_event(f"{thief.name} が盗賊を ({q},{r}) に移動しました（{victim.name} は手札なし）", "robber")
@@ -446,6 +468,11 @@ class Game:
             return None
         self._bank_put_cost(DEV_CARD_COST)
         p.new_dev_cards.append(card.value)
+        name = DEV_JA.get(card.value, card.value)
+        if card == DevCardType.VICTORY_POINT:
+            self.add_private_event(p.id, f"発展カード『{name}』を引きました(隠し持ちになります)", "dev_draw")
+        else:
+            self.add_private_event(p.id, f"発展カード『{name}』を引きました(今ターンは使えません)", "dev_draw")
         # VP cards count immediately
         if card == DevCardType.VICTORY_POINT:
             p.hidden_vp += 1
@@ -505,7 +532,13 @@ class Game:
                         amt = other.resources.get(rt_enum, 0)
                         other.resources[rt_enum] = 0
                         total += amt
+                        if amt > 0:   # each victim sees only their own count
+                            self.add_private_event(other.id, f"{p.name}の独占で {_ja(rt_enum)} を{amt}枚取られました", "monopoly")
                 p.resources[rt_enum] += total
+                if total > 0:
+                    self.add_private_event(p.id, f"独占で {_ja(rt_enum)} を合計{total}枚獲得しました", "monopoly")
+                else:
+                    self.add_private_event(p.id, f"独占で {_ja(rt_enum)} は誰も持っていませんでした", "monopoly")
                 self.add_event(f"{p.name} が独占カードを使いました（{_ja(rt_enum)} を {total} 枚獲得）", "monopoly")
         elif card_type == DevCardType.VICTORY_POINT.value:
             pass  # already counted

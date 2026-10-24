@@ -515,6 +515,11 @@ def serialize(g, viewer=None):
         # army, the win, ...). Same text for every viewer: it never contains
         # hidden information. Clients diff by `id` to toast / append to the log.
         "events": list(getattr(g, "events", [])),
+        # Private events: only the viewer's own player gets any. The monitor
+        # (debug view), spectators and anyone without a pid get an empty list,
+        # even though the monitor can otherwise see every hand.
+        "private_events": ([e for e in getattr(g, "private_events", []) if e["to"] == viewer]
+                           if isinstance(viewer, int) and not isinstance(viewer, bool) else []),
         "valid": {
             "roads": valid_roads,
             "settlements": valid_settlements,
