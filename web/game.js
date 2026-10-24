@@ -1508,18 +1508,23 @@ function updateSidebar() {
   const devSel = document.getElementById('dev-select');
   const prevVal = devSel.value;
   devSel.innerHTML = '';
-  if (me && me.dev_cards) {
-    for (const c of me.dev_cards) {
-      // a victory point card is never "played" - it is only a score
-      if (c === 'victory_point') continue;
+  // a victory point card is never "played" - it is only a score
+  const usable = (me && me.dev_cards) ? me.dev_cards.filter(c => c !== 'victory_point') : [];
+  if (usable.length) {
+    const ph = document.createElement('option');
+    ph.value = ''; ph.textContent = '-- 選んでください --';
+    devSel.appendChild(ph);
+    for (const c of usable) {
       const opt = document.createElement('option');
       opt.value = c; opt.textContent = devName(c);
       devSel.appendChild(opt);
     }
   }
-  if (prevVal && [...devSel.options].some(o=>o.value===prevVal)) devSel.value = prevVal;
+  // Keep the player's own choice while that card is still in hand (polls
+  // rebuild this list); otherwise fall back to the placeholder.
+  devSel.value = (prevVal && usable.includes(prevVal)) ? prevVal : '';
   updateDevParams();
-  devSel.onchange = updateDevParams;
+  devSel.onchange = () => { updateDevParams(); updateActionAvailability(); };
   document.getElementById('devcards').textContent =
     (me && me.dev_cards ? me.dev_cards.map(devName).join(', ') : '') +
     (me && me.new_dev_cards && me.new_dev_cards.length ? ' (新規: '+me.new_dev_cards.map(devName).join(',')+')' : '');
@@ -1670,6 +1675,20 @@ function updateTradeUI(me) {
 // Monopoly / Year of Plenty: pick the resource(s) from a dropdown instead of
 // a text prompt. Rebuilt only when the selected card actually changes so the
 // player's choice is not reset every poll.
+function devCardChosen() {
+  const sel = document.getElementById('dev-select');
+  return !!(sel && sel.value);
+}
+
+// After a card is used the list is shown again from the placeholder.
+function resetDevSelect() {
+  const sel = document.getElementById('dev-select');
+  if (!sel) return;
+  sel.value = '';
+  updateDevParams();
+  updateActionAvailability();
+}
+
 function updateDevParams() {
   const sel = document.getElementById('dev-select');
   const box = document.getElementById('dev-params');
@@ -1700,10 +1719,12 @@ function updateDevParams() {
 
 function updateActionAvailability() {
   const blocked = hasPendingDiscards() || (state && state.robber_pending) || !isMyTurn();
-  for (const id of ['btn-roll','btn-end','btn-buydev','btn-playdev','btn-trade','btn-pt-propose']) {
+  for (const id of ['btn-roll','btn-end','btn-buydev','btn-trade','btn-pt-propose']) {
     const el = document.getElementById(id);
     if (el) el.disabled = !!blocked;
   }
+  const pd = document.getElementById('btn-playdev');
+  if (pd) pd.disabled = !!blocked || !devCardChosen();
   const rb = document.getElementById('mode-robber');
   if (rb) rb.disabled = !(state && state.robber_pending && isMyTurn());
   // During setup the sequence settlement -> road is automatic, so the manual
@@ -1892,8 +1913,10 @@ function pointToSegDist(px,py,a,b) {
 
 async function sendRobberMove(hex, victim) {
   let r;
+  const wasKnight = pendingKnight;
   if (pendingKnight) r = await post('play_dev', {card:'knight', hex, victim});
   else r = await post('move_robber', {hex, victim});
+  if (wasKnight && r && r.ok) resetDevSelect();
   pendingRobberHex = null;
   pendingKnight = false;
   mode = 'none';
@@ -2113,6 +2136,7 @@ function bindButtons() {
     }
     const r = await post('play_dev', params);
     if (!r.ok) alert(r.error || 'このカードは今ターンに使えません。');
+    else resetDevSelect();
   };
   document.getElementById('btn-discard').onclick = async () => {
     if (!hasPendingDiscards()) return;
