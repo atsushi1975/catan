@@ -551,8 +551,8 @@ let wasMyTurn = false;        // previous poll: was it this player's turn?
 let logLines = [];            // recent events, newest last
 const LOG_MAX = 20;
 
-function pushLog(ev) {
-  logLines.push({ id: ev.id, kind: ev.kind || 'info', text: ev.text || '' });
+function pushLog(ev, priv) {
+  logLines.push({ id: ev.id, kind: ev.kind || 'info', text: ev.text || '', priv: !!priv });
   if (logLines.length > LOG_MAX) logLines = logLines.slice(-LOG_MAX);
 }
 
@@ -566,11 +566,11 @@ function renderEventLog() {
   if (!el) return;
   if (!logLines.length) { el.innerHTML = '<div class="muted" style="font-size:12px;">まだ何もありません</div>'; return; }
   el.innerHTML = logLines.slice().reverse().map(l =>
-    '<div class="log-line kind-' + l.kind + '">' + escapeHtml(l.text) + '</div>').join('');
+    '<div class="log-line kind-' + l.kind + (l.priv ? ' private' : '') + '">' + escapeHtml(l.text) + '</div>').join('');
 }
 
 // A toast near the centre of the screen; fades out on its own.
-function showToast(text, kind) {
+function showToast(text, kind, priv) {
   let host = document.getElementById('toast-host');
   if (!host) {
     host = document.createElement('div');
@@ -578,7 +578,7 @@ function showToast(text, kind) {
     document.body.appendChild(host);
   }
   const t = document.createElement('div');
-  t.className = 'toast kind-' + (kind || 'info');
+  t.className = 'toast kind-' + (kind || 'info') + (priv ? ' private' : '');
   t.textContent = text;
   host.appendChild(t);
   void t.offsetWidth;
@@ -611,6 +611,33 @@ function handleEvents(events) {
   renderEventLog();
 }
 
+// Private events: text only THIS player may see (what was stolen from / by
+// them, the dev card they drew, ...). The server sends them to the matching
+// seat only; the monitor and spectators always get an empty list. Own id
+// counter (separate from the public one).
+let seenPrivateId = null;
+
+function handlePrivateEvents(events) {
+  if (!Array.isArray(events)) return;
+  if (seenPrivateId !== null && events.length && events[events.length - 1].id < seenPrivateId) {
+    seenPrivateId = null;       // ids restarted (a new game): start over
+  }
+  if (seenPrivateId === null) {
+    // First load: history goes into the log, no toast for the whole back-log.
+    for (const ev of events) pushLog(ev, true);
+    seenPrivateId = events.length ? events[events.length - 1].id : 0;
+    renderEventLog();
+    return;
+  }
+  for (const ev of events) {
+    if (ev.id > seenPrivateId) {
+      pushLog(ev, true);
+      showToast(ev.text, ev.kind, true);
+    }
+  }
+  if (events.length) seenPrivateId = Math.max(seenPrivateId, events[events.length - 1].id);
+  renderEventLog();
+}
 
 // A player page must never silently look like a spectator board. If the server
 // says the viewer has no seat, say so on screen instead of showing the hexes
@@ -748,6 +775,7 @@ async function getState() {
   updatePanels();
   updateMobileToggle();
   handleEvents(state.events);
+  handlePrivateEvents(state.private_events);
 }
 async function post(action, extra={}) {
   const body = Object.assign({action}, extra);

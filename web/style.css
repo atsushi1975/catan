@@ -74,6 +74,8 @@ h2 { margin: 8px 0; font-size: 16px; }
 #event-log .kind-knight  { color: #ff8a65; }
 #event-log .kind-seven   { color: #ffb74d; }
 #event-log .kind-robber  { color: #ff8a65; }
+#event-log .log-line.private { color: #e1bee7; border-left: 3px solid #ba68c8; padding-left: 6px; }
+#event-log .log-line.private::before { content: "あなただけ　"; font-size: 10px; color: #ba68c8; }
 #event-log .kind-win     { color: #ffd54f; font-weight: bold; }
 #event-log .kind-longest_road,
 #event-log .kind-largest_army { color: #81c784; }
@@ -96,4 +98,5 @@ h2 { margin: 8px 0; font-size: 16px; }
 .toast.kind-knight, .toast.kind-robber { border-color: #ff8a65; }
 .toast.kind-seven { border-color: #ffb74d; }
 .toast.kind-win { border-color: #ffd54f; color: #ffd54f; font-weight: bold; }
+.toast.private { border-color: #ba68c8; color: #f3d9fa; }
 .toast.kind-mine { border-color: #4caf50; color: #c8f7c5; font-weight: bold; }
