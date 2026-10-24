@@ -191,6 +191,32 @@ check(p1.get("dev_cards") == ["year_of_plenty"], "winner's held cards visible af
 # reset so the file leaves a clean room behind
 post_json({"action": "room_reset"})
 
+# --- icons and manifest ------------------------------------------------------
+ICON_CASES = [
+    ("/favicon.svg", "image/svg+xml", "favicon.svg"),
+    ("/favicon.ico", "image/x-icon", "favicon.ico"),
+    ("/apple-touch-icon.png", "image/png", "apple-touch-icon.png"),
+    ("/icon-192.png", "image/png", "icon-192.png"),
+    ("/icon-512.png", "image/png", "icon-512.png"),
+    ("/manifest.json", "application/json", "manifest.json"),
+]
+web_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "web")
+for path, ctype, fname in ICON_CASES:
+    s_, h, b = call("GET", path)
+    check(s_.startswith("200"), "GET %s -> 200" % path)
+    check(h.get("Content-Type", "").startswith(ctype), "%s served as %s" % (path, ctype))
+    with open(os.path.join(web_dir, fname), "rb") as f:
+        check(b == f.read(), "%s bytes match web/%s" % (path, fname))
+# the pages link the icons they reference
+for page in ("client.html", "index.html"):
+    with open(os.path.join(web_dir, page), encoding="utf-8") as f:
+        html = f.read()
+    check('href="favicon.svg"' in html and 'href="manifest.json"' in html,
+          "%s links favicon and manifest" % page)
+# only the listed names are served from the root (no other files leak)
+s_, h, b = call("GET", "/app_core.py")
+check(s_.startswith("404"), "root files outside the icon list are not served")
+
 # --- 405 --------------------------------------------------------------------
 s, h, b = call("DELETE", "/")
 check(s.startswith("405"), "unsupported method -> 405")

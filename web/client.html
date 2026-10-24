@@ -71,6 +71,11 @@
   #game { display: none; }
   #link-monitor { position: fixed; right: 8px; bottom: 8px; font-size: 11px; color: #78909c; z-index: 10; }
 </style>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#4a9fd0">
 </head>
 <body>
 <div id="lobby">
@@ -237,7 +242,7 @@
   let booted = false;
   let lastRecoverTry = 0;
   let lastRoom = null;      // last successful /room answer, for diagLine()
-  const VERSION = 'v44';   // shown by diagLine(); bump whenever the client changes
+  const VERSION = 'v45';   // shown by diagLine(); bump whenever the client changes
   // Debug/diagnostic text stays hidden for players. Add ?diag=1 to the URL
   // (player or monitor page) when the build string or seat state is needed.
   const SHOW_DIAG = (() => {

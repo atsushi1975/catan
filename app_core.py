@@ -922,6 +922,12 @@ def _content_type_for(path):
     return 'application/octet-stream'
 
 
+# Icons and the web manifest that live at the top of web/ (linked from the
+# <head> of each page). Only these names are served from the root.
+ICON_FILES = {'favicon.svg', 'favicon.ico', 'apple-touch-icon.png',
+              'icon-192.png', 'icon-512.png', 'manifest.json'}
+
+
 def route_get(path, query, client_ip):
     """Handle a GET. Returns (status, content_type, body_bytes).
 
@@ -939,6 +945,8 @@ def route_get(path, query, client_ip):
     if path == '/game.js':
         return _file_response('game.js')
     if path.startswith('/assets/'):
+        return _file_response(path.lstrip('/'))
+    if path.lstrip('/') in ICON_FILES:
         return _file_response(path.lstrip('/'))
 
     if path == '/room':
