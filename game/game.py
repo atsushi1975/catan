@@ -5,7 +5,8 @@ from .player import Player
 from .resources import (ResourceType, TerrainType, TERRAIN_TO_RESOURCE,
                         ROAD_COST, SETTLEMENT_COST, CITY_COST, DEV_CARD_COST,
                         VP_SETTLEMENT, VP_CITY, VP_LARGEST_ARMY,
-                        VP_LONGEST_ROAD, VICTORY_TARGET)
+                        VP_LONGEST_ROAD, VICTORY_TARGET,
+                        LONGEST_ROAD_MIN, LARGEST_ARMY_MIN)
 from .cards import (create_dev_deck, draw_dev_card, DevCardType)
 from .trade import bank_trade
 
@@ -64,10 +65,13 @@ class Game:
         #  "targets": [pid, ...], "declined": [pid, ...]}
         self.trade_offer = None
         # longest road / largest army tracking
+        # Both titles are re-decided from everybody's current value each time
+        # (see _resolve_title). `*_length` / `*_count` hold the current maximum
+        # over all players, which may be below the minimum (then nobody owns it).
         self.longest_road_owner = None
-        self.longest_road_length = 4  # minimum 5 roads to qualify (length edges)
+        self.longest_road_length = 0
         self.largest_army_owner = None
-        self.largest_army_count = 2  # minimum 3 knights
+        self.largest_army_count = 0
         # Public event log. Every entry is information that is open at a real
         # table (dev cards played, the robber, longest road / largest army,
         # the win, ...). Clients diff by `id` to raise a toast / append a log
@@ -397,6 +401,7 @@ class Game:
         self._bank_put_cost(SETTLEMENT_COST)
         vinfo["building"] = "settlement"
         vinfo["owner"] = p.id
+        self._update_longest_road()   # may cut an opponent's road
         self._check_win()
         return True
 
@@ -420,6 +425,7 @@ class Game:
             return False
         self._bank_put_cost(CITY_COST)
         vinfo["building"] = "city"
+        self._update_longest_road()
         self._check_win()
         return True
 
@@ -537,23 +543,43 @@ class Game:
         return True  # additional checks done elsewhere
 
     # ---------- Longest road / Largest army ----------
+    def _resolve_title(self, values, minimum, current_owner):
+        """Decide who holds a title (longest road / largest army).
+
+        `values` maps player id -> current value. Returns (owner, best):
+          * best < minimum            -> nobody
+          * a single best player      -> that player
+          * several tied at the best  -> the current owner if among them,
+                                         otherwise nobody (it is not handed out)
+        """
+        best = max(values.values()) if values else 0
+        if best < minimum:
+            return None, best
+        leaders = [pid for pid, v in values.items() if v == best]
+        if len(leaders) == 1:
+            return leaders[0], best
+        if current_owner in leaders:
+            return current_owner, best
+        return None, best
+
     def _update_longest_road(self):
-        for p in self.players:
-            length = self._longest_road_length(p.id)
-            if length > self.longest_road_length:
-                # remove from previous
-                if self.longest_road_owner is not None and self.longest_road_owner != p.id:
-                    self.players[self.longest_road_owner].longest_road = False
-                    self.players[self.longest_road_owner].vp -= VP_LONGEST_ROAD
-                self.longest_road_length = length
-                self.longest_road_owner = p.id
-                p.longest_road = True
-                p.vp += VP_LONGEST_ROAD
-                self.add_event(f"{p.name} が最長交易路を獲得しました（長さ {length}）", "longest_road")
-                self._check_win()
-            elif length == self.longest_road_length and self.longest_road_owner is not None and self.longest_road_owner != p.id:
-                # tie: original keeper keeps it (standard rule: must exceed)
-                pass
+        values = {p.id: self._longest_road_length(p.id) for p in self.players}
+        old = self.longest_road_owner
+        owner, best = self._resolve_title(values, LONGEST_ROAD_MIN, old)
+        self.longest_road_length = best
+        if owner == old:
+            return          # same holder (or still nobody): never touch the VP
+        if old is not None:
+            self.players[old].longest_road = False
+            self.players[old].vp -= VP_LONGEST_ROAD
+        self.longest_road_owner = owner
+        if owner is not None:
+            self.players[owner].longest_road = True
+            self.players[owner].vp += VP_LONGEST_ROAD
+            self.add_event(f"{self.players[owner].name} が最長交易路を獲得しました（長さ {best}）", "longest_road")
+        else:
+            self.add_event(f"{self.players[old].name} が最長交易路を失いました（持ち主なし）", "longest_road")
+        self._check_win()
 
     def _longest_road_length(self, pid):
         # DFS over roads owned by pid
@@ -591,19 +617,23 @@ class Game:
         return best
 
     def _update_largest_army(self):
-        for p in self.players:
-            if p.knights_played > self.largest_army_count:
-                if self.largest_army_owner is not None and self.largest_army_owner != p.id:
-                    self.players[self.largest_army_owner].largest_army = False
-                    self.players[self.largest_army_owner].vp -= VP_LARGEST_ARMY
-                self.largest_army_count = p.knights_played
-                self.largest_army_owner = p.id
-                p.largest_army = True
-                p.vp += VP_LARGEST_ARMY
-                self.add_event(f"{p.name} が最大騎士力を獲得しました（騎士 {p.knights_played} 枚）", "largest_army")
-                self._check_win()
-            elif p.knights_played == self.largest_army_count and self.largest_army_owner is not None and self.largest_army_owner != p.id:
-                pass  # tie keeps original
+        values = {p.id: p.knights_played for p in self.players}
+        old = self.largest_army_owner
+        owner, best = self._resolve_title(values, LARGEST_ARMY_MIN, old)
+        self.largest_army_count = best
+        if owner == old:
+            return
+        if old is not None:
+            self.players[old].largest_army = False
+            self.players[old].vp -= VP_LARGEST_ARMY
+        self.largest_army_owner = owner
+        if owner is not None:
+            self.players[owner].largest_army = True
+            self.players[owner].vp += VP_LARGEST_ARMY
+            self.add_event(f"{self.players[owner].name} が最大騎士力を獲得しました（騎士 {best} 枚）", "largest_army")
+        else:
+            self.add_event(f"{self.players[old].name} が最大騎士力を失いました（持ち主なし）", "largest_army")
+        self._check_win()
 
     def _check_win(self):
         for p in self.players:

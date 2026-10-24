@@ -40,6 +40,8 @@ VP_SETTLEMENT = 1
 VP_CITY = 2
 VP_LARGEST_ARMY = 2
 VP_LONGEST_ROAD = 2
+LONGEST_ROAD_MIN = 5     # roads in a row needed for the title
+LARGEST_ARMY_MIN = 3     # knights played needed for the title
 VICTORY_TARGET = 10
 
 # Player limits
