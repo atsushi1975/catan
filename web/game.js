@@ -1479,15 +1479,18 @@ function updateSidebar() {
   }
 
   const me = selfPlayer();
-  const rd = document.getElementById('resources');
-  rd.innerHTML = '';
-  if (me && me.resources) {
-    for (const k of RES) {
-      const row = document.createElement('div'); row.className='resource';
-      row.innerHTML = `<span>${resName(k)}</span><span>${me.resources[k]||0}</span>`;
-      rd.appendChild(row);
+  const rd = document.getElementById('resources');   // monitor only
+  if (rd) {
+    rd.innerHTML = '';
+    if (me && me.resources) {
+      for (const k of RES) {
+        const row = document.createElement('div'); row.className='resource';
+        row.innerHTML = `<span>${resName(k)}</span><span>${me.resources[k]||0}</span>`;
+        rd.appendChild(row);
+      }
     }
   }
+  renderHand(me);
   const bankEl = document.getElementById('bank');
   if (bankEl) {
     bankEl.textContent = '銀行の残り: ' + RES.map(k => `${resName(k)}:${state.bank ? state.bank[k] : '?'}`).join('　');
@@ -1524,6 +1527,26 @@ function updateSidebar() {
   updateTradeUI(me);
   updatePlayerTradeUI(me);
   updateActionAvailability();
+}
+
+// The player's own hand as one row of five coloured chips ("木 3"). Colours are
+// the board's terrain colours, but the kanji + count carry the meaning too, so
+// the row never relies on colour alone. Shown only to a seated player: the
+// monitor and spectators have no hand of their own.
+const HAND_TERRAIN = {wood:'forest', brick:'hills', sheep:'pasture', wheat:'fields', ore:'mountains'};
+const HAND_TEXT = {wood:'#fff', brick:'#1b1208', sheep:'#14230a', wheat:'#2a2300', ore:'#161616'};
+
+function renderHand(me) {
+  const el = document.getElementById('hand');
+  if (!el) return;
+  const seated = VIEW === 'client' && state && state.you !== null && state.you !== undefined
+    && me && me.resources;
+  if (!seated) { el.style.display = 'none'; el.innerHTML = ''; return; }
+  el.style.display = 'flex';
+  el.innerHTML = RES.map(k => {
+    const n = me.resources[k] || 0;
+    return `<span class="hand-chip${n ? '' : ' zero'}" style="background:${TERRAIN_COLOR[HAND_TERRAIN[k]]};color:${HAND_TEXT[k]};">${resName(k)} ${n}</span>`;
+  }).join('');
 }
 
 function resStr(d) {
@@ -1937,6 +1960,7 @@ function sidebarHTML() {
       </div>
     </div>
     <div id="status">読み込み中...</div>
+    <div id="hand" class="hand-row" style="display:none;"></div>
     <div>
       <button class="btn" id="btn-roll">サイコロを振る</button>
       <button class="btn" id="btn-end">ターン終了</button>
@@ -1944,6 +1968,11 @@ function sidebarHTML() {
     </div>
     <div class="m-only" style="margin:2px 0 6px;">
       <button id="toggle-all">▽ 交易・発展カードなども表示</button>
+    </div>
+    <div class="m-fold" id="fold-dev">
+      <select id="dev-select" style="width:100%;margin:4px 0;padding:4px;"></select>
+      <div id="dev-params" style="display:none;margin:4px 0;"></div>
+      <button class="btn" id="btn-playdev">選んだカードを使う</button>
     </div>
     <div class="m-fold" id="fold-build">
       <button class="btn" id="mode-road">街道を建てる</button>
@@ -1955,8 +1984,7 @@ function sidebarHTML() {
     </div>
     <h2>プレイヤー</h2>
     <div id="players"></div>
-    <h2>${VIEW === 'monitor' ? '資源（現在の手番）' : '自分の資源'}</h2>
-    <div id="resources"></div>
+    ${VIEW === 'monitor' ? '<h2>資源（現在の手番）</h2><div id="resources"></div>' : ''}
     <div id="bank" style="font-size:11px;color:#bbb;margin-top:2px;"></div>
     <h2>銀行・港との交易</h2>
     <div id="trade-panel" class="m-fold">
@@ -1985,11 +2013,6 @@ function sidebarHTML() {
     <div id="legend" style="font-size:11px;line-height:1.6;"></div>
     <h2>発展カード</h2>
     <div id="devcards"></div>
-    <div class="m-fold" id="fold-dev">
-      <select id="dev-select" style="width:100%;margin:4px 0;padding:4px;"></select>
-      <div id="dev-params" style="display:none;margin:4px 0;"></div>
-      <button class="btn" id="btn-playdev">選んだカードを使う</button>
-    </div>
     <h2>ログ</h2>
     <div id="event-log"></div>
     </div>`;
