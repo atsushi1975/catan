@@ -3,7 +3,7 @@
 
 Lobby radio boxes:
   center    - always the middle hex
-  coast_ng  - anywhere inland, so NO coastal hex is desert (the default)
+  coast_ng  - anywhere inland, so NO coastal hex is desert
   none      - anywhere on the board, coast included
 
 Covers both the board generation and the lobby plumbing (the room setting,
@@ -69,7 +69,7 @@ check(desert_key(Board(seed=1)) == desert_key(Board(seed=1, desert="coast_ng")),
 # ===========================================================================
 handle_lobby("room_reset", {})
 r = serialize_room()
-check(r["settings"].get("desert") == "coast_ng", "room starts with the coast_ng rule")
+check(r["settings"].get("desert") == "center", "room starts with the center rule")
 
 # two players so a preview board exists
 TOK_A = handle_lobby("join", {"name": "アリス"})["token"]
@@ -108,7 +108,7 @@ ROOM["phase"] = "lobby"
 
 # the setting must survive a reset back to defaults
 handle_lobby("room_reset", {})
-check(serialize_room()["settings"].get("desert") == "coast_ng", "room_reset restores the default rule")
+check(serialize_room()["settings"].get("desert") == "center", "room_reset restores the default rule")
 
 # end-to-end: choose "center", start a game, and the played board respects it
 handle_lobby("join", {"name": "x"})

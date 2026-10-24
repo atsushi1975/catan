@@ -35,7 +35,7 @@
   #lobby .rules-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   #lobby .rules-label { font-size: 13px; color: #bbb; }
   #lobby .rules-choices { display: flex; gap: 12px; flex-wrap: wrap; }
-  #lobby .radio { font-size: 13px; display: inline-flex; align-items: center;
+  #lobby .radio { font-size: 13px; white-space: nowrap; display: inline-flex; align-items: center;
     gap: 4px; cursor: pointer; }
   #lobby .radio input { accent-color: #4caf50; }
   #lobby .rules-note { margin-top: 6px; font-size: 11px; color: #888; }
@@ -242,7 +242,7 @@
   let booted = false;
   let lastRecoverTry = 0;
   let lastRoom = null;      // last successful /room answer, for diagLine()
-  const VERSION = 'v45';   // shown by diagLine(); bump whenever the client changes
+  const VERSION = 'v46';   // shown by diagLine(); bump whenever the client changes
   // Debug/diagnostic text stays hidden for players. Add ?diag=1 to the URL
   // (player or monitor page) when the build string or seat state is needed.
   const SHOW_DIAG = (() => {
@@ -460,22 +460,22 @@
     // house rules (chosen before the game starts)
     const st = r.settings || {};
     const desertOpts = [
-      ['center',   'センター固定',   '砂漠は常に中央'],
-      ['coast_ng', '海岸砂漠NG',     '砂漠は内陸（海岸以外）※既定'],
-      ['none',     '固定なし',       '砂漠はどこでも（海岸もあり）'],
+      ['center',   'センター',   '砂漠は常に中央'],
+      ['coast_ng', '内陸',       '砂漠は海岸以外（内陸）'],
+      ['none',     '固定なし',   '砂漠はどこでも（海岸もあり）'],
     ];
     const victoryOpts = [
       [10, '10点（通常）', '通常のカタン（10点で勝利）'],
-      [7,  '7点（短時間）', '短時間で終わる7点勝利ルール'],
+      [7,  '7点（短縮）', '短時間で終わる7点勝利ルール'],
     ];
     const numberOpts = [
       ['official', '公式準拠', 'ルールブック通りの螺旋配置'],
       ['random',   'ランダム',   '6-8隣接・2-12隣接を避けてランダム'],
     ];
     html += `<div class="rules"><div class="rules-title">ハウスルール</div>
-      <div class="rules-row"><span class="rules-label">初期砂漠</span><span class="rules-choices">`;
+      <div class="rules-row"><span class="rules-label">砂漠</span><span class="rules-choices">`;
     for (const [val, label, title] of desertOpts) {
-      const checked = (st.desert || 'coast_ng') === val;
+      const checked = (st.desert || 'center') === val;
       html += `<label class="radio" title="${title}">
         <input type="radio" name="rule-desert" value="${val}" ${checked ? 'checked' : ''}>
         ${label}</label>`;

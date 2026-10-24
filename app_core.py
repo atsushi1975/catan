@@ -63,7 +63,7 @@ ROOM = {
     "slots": {},        # lobby draft: seat index -> chosen turn number (1..N)
     "color_slots": {},  # lobby draft: seat index -> chosen colour (dice order)
     "settings": {       # house rules chosen in the lobby before the game starts
-        "desert": "coast_ng",   # "center" | "coast_ng" | "none"
+        "desert": "center",     # "center" | "coast_ng" | "none"
         "numbers": "official",  # "official" | "random"
         "victory": 10,          # 10 | 7
     },
@@ -106,7 +106,7 @@ def reset_room():
         ROOM["g"] = None
         ROOM["slots"] = {}
         ROOM["color_slots"] = {}
-        ROOM["settings"] = {"desert": "coast_ng", "numbers": "official", "victory": 10}
+        ROOM["settings"] = {"desert": "center", "numbers": "official", "victory": 10}
 
 
 def _new_token():
@@ -222,7 +222,7 @@ DESERT_MODES = ("center", "coast_ng", "none")
 
 def _desert_mode():
     """The house rule for where the desert goes (validated, with a safe default)."""
-    m = (ROOM.get("settings") or {}).get("desert", "coast_ng")
+    m = (ROOM.get("settings") or {}).get("desert", "center")
     return m if m in DESERT_MODES else "coast_ng"
 
 
