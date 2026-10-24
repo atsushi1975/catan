@@ -1252,7 +1252,12 @@ function render() {
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText(h.number, cc.x, cc.y - 2);
     }
-    if (h.robber) {
+    // While the victim is still being chosen the robber already stands on the
+    // tapped hex (display only; the server moves it on 奪う, cancel puts it back).
+    const robberHere = pendingRobberHex !== null
+      ? (h.q === pendingRobberHex[0] && h.r === pendingRobberHex[1])
+      : h.robber;
+    if (robberHere) {
       // drawn on top of the number chip: the robber is allowed to cover it
       drawRobber(cc.x, cc.y - 2);
     }
