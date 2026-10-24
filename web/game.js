@@ -1408,7 +1408,13 @@ function updateSidebar() {
       : '<span style="color:#aaa;">相手の手番です（待機中）</span>') + hint;
   }
   let extra = '';
-  if (hasPendingDiscards()) extra = '<br><b style="color:#ff8">7: カードを捨ててください</b>';
+  if (hasPendingDiscards()) {
+    const waiting = Object.keys(state.pending_discards).map(k => playerName(Number(k))).join('、');
+    const iMust = VIEW === 'client' && state.pending_discards[String(state.you)] !== undefined;
+    extra = iMust
+      ? '<br><b style="color:#ff8">7: あなたはカードを捨ててください</b>'
+      : `<br><b style="color:#ff8">7: 捨て札待ち（${waiting}）。終わると盗賊を動かせます</b>`;
+  }
   else if (state.robber_pending) extra = '<br><b style="color:#ff8">7: 盗賊を移動（ヘックスをクリック）</b>';
   if (state.rerolled) extra += '<br><span style="color:#8cf">7は振り直し（第1巡目）</span>';
   let mine = '';
@@ -1702,6 +1708,11 @@ function _barReason() {
   if (!state) return null;
   if (state.phase === 'setup' && isMyTurn()) return 'setup';
   if (hasPendingDiscards()) return 'discard:' + state.turn_number;
+  // Choosing the victim is a separate step from tapping the hex: the sheet may
+  // have been closed by hand to reach the board, and the victim panel lives in
+  // it, so this step must open it again (also for a Knight, where
+  // robber_pending is not set yet).
+  if (pendingRobberHex !== null && isMyTurn()) return 'robber-victim:' + state.turn_number;
   if (state.robber_pending && isMyTurn()) return 'robber:' + state.turn_number;
   return null;
 }
@@ -1792,6 +1803,10 @@ function updatePanels() {
   // ---- robber panel ----
   const rp = document.getElementById('robber-panel');
   if (pendingRobberHex !== null) {
+    if (rp.style.display !== 'block') {
+      const sb = document.getElementById('sidebar');
+      if (sb) sb.scrollTop = 0;     // the victim panel is the first thing in the sheet
+    }
     rp.style.display = 'block';
     const key = pendingRobberHex[0] + ',' + pendingRobberHex[1];
     const victims = (state.robber_victims && state.robber_victims[key]) || [];
@@ -1872,6 +1887,22 @@ function sidebarHTML() {
       <span id="m-bar-status"></span>
     </div>
     <div id="sidebar-body">
+    <!-- must-answer panels first: on a phone the sheet is short, and these used to sit below the status and buttons, out of sight -->
+    <div id="discard-panel" class="panel" style="display:none;">
+      <h2>カードを捨てる</h2>
+      <div id="discard-info" style="font-size:12px;margin-bottom:6px;"></div>
+      <div id="discard-inputs"></div>
+      <div style="margin-top:6px;"><button class="btn" id="btn-discard">捨てる</button></div>
+    </div>
+    <div id="robber-panel" class="panel" style="display:none;">
+      <h2>奪う相手を選ぶ</h2>
+      <div id="robber-info" style="font-size:12px;margin-bottom:6px;"></div>
+      <select id="robber-victim" style="width:100%;padding:4px;"></select>
+      <div style="margin-top:6px;">
+        <button class="btn" id="btn-robber-ok">奪う</button>
+        <button class="btn" id="btn-robber-cancel">キャンセル</button>
+      </div>
+    </div>
     <div id="status">読み込み中...</div>
     <div>
       <button class="btn" id="btn-roll">サイコロを振る</button>
@@ -1888,21 +1919,6 @@ function sidebarHTML() {
       <button class="btn" id="btn-buydev">発展カードを購入</button>
       <button class="btn" id="mode-none">キャンセル</button>
 
-    </div>
-    <div id="discard-panel" class="panel" style="display:none;">
-      <h2>カードを捨てる</h2>
-      <div id="discard-info" style="font-size:12px;margin-bottom:6px;"></div>
-      <div id="discard-inputs"></div>
-      <div style="margin-top:6px;"><button class="btn" id="btn-discard">捨てる</button></div>
-    </div>
-    <div id="robber-panel" class="panel" style="display:none;">
-      <h2>奪う相手を選ぶ</h2>
-      <div id="robber-info" style="font-size:12px;margin-bottom:6px;"></div>
-      <select id="robber-victim" style="width:100%;padding:4px;"></select>
-      <div style="margin-top:6px;">
-        <button class="btn" id="btn-robber-ok">奪う</button>
-        <button class="btn" id="btn-robber-cancel">キャンセル</button>
-      </div>
     </div>
     <h2>プレイヤー</h2>
     <div id="players"></div>
