@@ -242,7 +242,7 @@
   let booted = false;
   let lastRecoverTry = 0;
   let lastRoom = null;      // last successful /room answer, for diagLine()
-  const VERSION = 'v47';   // shown by diagLine(); bump whenever the client changes
+  const VERSION = 'v48';   // shown by diagLine(); bump whenever the client changes
   // Debug/diagnostic text stays hidden for players. Add ?diag=1 to the URL
   // (player or monitor page) when the build string or seat state is needed.
   const SHOW_DIAG = (() => {
@@ -474,12 +474,12 @@
     ];
     html += `<div class="rules"><div class="rules-title">ハウスルール</div>
       <div class="rules-row"><span class="rules-label">砂漠</span><span class="rules-choices">`;
-    const locked = !!r.rules_locked;
+    const fixed = r.rules_fixed || {};
     const hasDesert = Object.prototype.hasOwnProperty.call(st, 'desert');
     for (const [val, label, title] of desertOpts) {
       const checked = hasDesert ? st.desert === val : false;
       html += `<label class="radio" title="${title}">
-        <input type="radio" name="rule-desert" value="${val}" ${checked ? 'checked' : ''} ${locked ? 'disabled' : ''}>
+        <input type="radio" name="rule-desert" value="${val}" ${checked ? 'checked' : ''} ${fixed.desert ? 'disabled' : ''}>
         ${label}</label>`;
     }
     html += `</span></div>
@@ -488,7 +488,7 @@
     for (const [val, label, title] of victoryOpts) {
       const checked = hasVictory ? Number(st.victory) === val : false;
       html += `<label class="radio" title="${title}">
-        <input type="radio" name="rule-victory" value="${val}" ${checked ? 'checked' : ''} ${locked ? 'disabled' : ''}>
+        <input type="radio" name="rule-victory" value="${val}" ${checked ? 'checked' : ''} ${fixed.victory ? 'disabled' : ''}>
         ${label}</label>`;
     }
     html += `</span></div>
@@ -497,7 +497,7 @@
     for (const [val, label, title] of numberOpts) {
       const checked = hasNumbers ? st.numbers === val : false;
       html += `<label class="radio" title="${title}">
-        <input type="radio" name="rule-numbers" value="${val}" ${checked ? 'checked' : ''} ${locked ? 'disabled' : ''}>
+        <input type="radio" name="rule-numbers" value="${val}" ${checked ? 'checked' : ''} ${fixed.numbers ? 'disabled' : ''}>
         ${label}</label>`;
     }
     html += `</span></div>

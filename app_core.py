@@ -106,8 +106,8 @@ def reset_room():
         ROOM["g"] = None
         ROOM["slots"] = {}
         ROOM["color_slots"] = {}
-        ROOM["settings"] = {"desert": "center", "numbers": "official", "victory": 10}
-        ROOM["rules_locked"] = False
+        ROOM["settings"] = {}
+        ROOM["rules_fixed"] = {"desert": False, "numbers": False, "victory": False}
 
 
 def _new_token():
@@ -320,7 +320,7 @@ def serialize_room(token=None):
         "draft": draft,
         "can_start": bool(draft and draft.get("ready")),
         "settings": dict(ROOM.get("settings") or {}),
-        "rules_locked": bool(ROOM.get("rules_locked")),
+        "rules_fixed": dict(ROOM.get("rules_fixed") or {"desert": False, "numbers": False, "victory": False}),
         "board": preview,
     }
 
@@ -666,14 +666,15 @@ def handle_lobby(action, payload, local=True):
         with LOCK:
             if ROOM["phase"] != "lobby":
                 return {"ok": False, "error": "ゲーム中は変更できません"}
-            if ROOM.get("rules_locked"):
-                return {"ok": False, "error": "ルールは既に確定しています"}
+            fixed = ROOM.setdefault("rules_fixed", {"desert": False, "numbers": False, "victory": False})
+            key = payload.get("key")
+            if key in ("desert", "numbers", "victory") and fixed.get(key):
+                return {"ok": False, "error": "このルールは既に確定しています"}
             # Only seated players may change the house rules (an empty room is
             # allowed so the tests / a fresh server can be configured).
             if ROOM["seats"] and _seat_of(token) is None:
                 return {"ok": False, "error": "席に着いている人だけが変更できます"}
             s = ROOM.setdefault("settings", {})
-            key = payload.get("key")
             val = payload.get("value")
             if key in ("desert", "numbers", "victory"):
                 if key == "desert" and val not in DESERT_MODES:
@@ -688,17 +689,19 @@ def handle_lobby(action, payload, local=True):
                     if val not in (7, 10):
                         return {"ok": False, "error": "不正な設定値です"}
                 s[key] = val
-                # The desert placement changes the map, so a map that is already
-                # on screen is no longer valid - drop it and regenerate it right
-                # away with the new rule (players are looking at the board).
-                ROOM["g"] = None
-                ROOM["slots"] = {}
-                ROOM["color_slots"] = {}
-                for seat in ROOM["seats"]:
-                    seat["roll"] = None
-                ROOM["rules_locked"] = True
-                _ensure_board()
-                return {"ok": True, "settings": s, "rules_locked": True}
+                fixed[key] = True
+                if key == "desert":
+                    # The desert placement changes the map, so a map that is already
+                    # on screen is no longer valid - drop it and regenerate it right
+                    # away with the new rule (players are looking at the board).
+                    ROOM["g"] = None
+                    ROOM["slots"] = {}
+                    ROOM["color_slots"] = {}
+                    for seat in ROOM["seats"]:
+                        seat["roll"] = None
+                    _ensure_board()
+                    return {"ok": True, "settings": s, "rules_fixed": fixed}
+                return {"ok": True, "settings": s, "rules_fixed": fixed}
             return {"ok": False, "error": "不明な設定です"}
     if action == "room_start":
         with LOCK:
@@ -719,6 +722,9 @@ def handle_lobby(action, payload, local=True):
             picked = ROOM.get("color_slots") or {}
             if any(s not in picked for s in q):
                 return {"ok": False, "error": "色が未確定です（全員が色を選んでください）"}
+            fixed = ROOM.get("rules_fixed") or {}
+            if not (fixed.get("desert") and fixed.get("numbers") and fixed.get("victory")):
+                return {"ok": False, "error": "ハウスルールを全て選択してください"}
             # Play order follows the numbers the players chose, not the dice.
             order = sorted(q, key=lambda i: slots[i])
             ROOM["order"] = order
