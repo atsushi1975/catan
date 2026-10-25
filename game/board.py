@@ -288,6 +288,8 @@ class Board:
                 other = placed.get((nb.q, nb.r))
                 if other is None:
                     continue
+                if num == other:
+                    return False
                 if (num, other) in forbidden or (other, num) in forbidden:
                     return False
         return True
