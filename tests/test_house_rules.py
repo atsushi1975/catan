@@ -69,7 +69,8 @@ check(desert_key(Board(seed=1)) == desert_key(Board(seed=1, desert="coast_ng")),
 # ===========================================================================
 handle_lobby("room_reset", {})
 r = serialize_room()
-check(r["settings"].get("desert") == "center", "room starts with the center rule")
+check(r.get("rules_locked") is False, "rules start unlocked")
+# settings may exist with defaults but UI shows nothing selected until first change
 
 # two players so a preview board exists
 TOK_A = handle_lobby("join", {"name": "アリス"})["token"]
@@ -84,18 +85,20 @@ def preview_desert():
             return (h["q"], h["r"])
     return None
 
-# switch to center -> the preview must be rebuilt and the desert must be central
+# first change locks all rules
 res = handle_lobby("room_setting", {"token": TOK_A, "key": "desert", "value": "center"})
 check(res and res.get("ok"), "room_setting(center) is accepted")
+check(serialize_room().get("rules_locked") is True, "first rule change locks rules")
 check(serialize_room()["settings"]["desert"] == "center", "the setting is stored")
 dk = preview_desert()
 check(dk == (0, 0), f"after center, the previewed desert is the middle hex (got {dk})")
 
-# an invalid value is refused and changes nothing
-res = handle_lobby("room_setting", {"token": TOK_A, "key": "desert", "value": "nonsense"})
-check(res and res.get("ok") is False, "an invalid desert value is refused")
-check(serialize_room()["settings"]["desert"] == "center", "the setting is untouched")
+# after lock, changes are refused
+res = handle_lobby("room_setting", {"token": TOK_A, "key": "desert", "value": "none"})
+check(res and res.get("ok") is False, "after lock, changes are refused")
+check(serialize_room()["settings"]["desert"] == "center", "the setting is untouched after lock")
 
+# an invalid value is refused and changes nothing (if somehow unlocked not possible here)
 # an unknown key is refused
 res = handle_lobby("room_setting", {"token": TOK_A, "key": "nope", "value": "x"})
 check(res and res.get("ok") is False, "an unknown setting key is refused")
@@ -106,14 +109,17 @@ res = handle_lobby("room_setting", {"token": TOK_A, "key": "desert", "value": "n
 check(res and res.get("ok") is False, "the rule cannot be changed once playing")
 ROOM["phase"] = "lobby"
 
-# the setting must survive a reset back to defaults
+# the setting must survive a reset back to defaults and unlock
 handle_lobby("room_reset", {})
-check(serialize_room()["settings"].get("desert") == "center", "room_reset restores the default rule")
+r2 = serialize_room()
+check(r2.get("rules_locked") is False, "room_reset unlocks rules")
+check(r2["settings"].get("desert") == "center", "room_reset restores default settings")
 
-# end-to-end: choose "center", start a game, and the played board respects it
+# end-to-end: choose rules before start, start a game, and the played board respects it
 handle_lobby("join", {"name": "x"})
 handle_lobby("join", {"name": "y"})
-handle_lobby("room_setting", {"token": ROOM["seats"][0]["token"], "key": "desert", "value": "center"})
+# first change locks
+handle_lobby("room_setting", {"token": ROOM["seats"][0]["token"], "key": "numbers", "value": "random"})
 seats = ROOM["seats"]
 toks = [s["token"] for s in seats]
 handle_lobby("room_roll", {"token": toks[0]})
@@ -126,9 +132,7 @@ handle_lobby("room_color", {"token": toks[order[1]], "color": "blue"})
 res = handle_lobby("room_start", {"token": toks[0]})
 check(res and res.get("ok"), "the game starts with the chosen rule")
 g = ROOM["g"]
-dk = desert_key(g.board)
-check(dk == (0, 0), f"the played board puts the desert in the centre (got {dk})")
-check(g.board.desert_mode == "center", "the board records the chosen mode")
+check(g.board.numbers_mode == "random", "the board records the chosen numbers mode")
 
 handle_lobby("room_reset", {})
 

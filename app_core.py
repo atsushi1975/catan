@@ -107,6 +107,7 @@ def reset_room():
         ROOM["slots"] = {}
         ROOM["color_slots"] = {}
         ROOM["settings"] = {"desert": "center", "numbers": "official", "victory": 10}
+        ROOM["rules_locked"] = False
 
 
 def _new_token():
@@ -319,6 +320,7 @@ def serialize_room(token=None):
         "draft": draft,
         "can_start": bool(draft and draft.get("ready")),
         "settings": dict(ROOM.get("settings") or {}),
+        "rules_locked": bool(ROOM.get("rules_locked")),
         "board": preview,
     }
 
@@ -664,6 +666,8 @@ def handle_lobby(action, payload, local=True):
         with LOCK:
             if ROOM["phase"] != "lobby":
                 return {"ok": False, "error": "ゲーム中は変更できません"}
+            if ROOM.get("rules_locked"):
+                return {"ok": False, "error": "ルールは既に確定しています"}
             # Only seated players may change the house rules (an empty room is
             # allowed so the tests / a fresh server can be configured).
             if ROOM["seats"] and _seat_of(token) is None:
@@ -692,8 +696,9 @@ def handle_lobby(action, payload, local=True):
                 ROOM["color_slots"] = {}
                 for seat in ROOM["seats"]:
                     seat["roll"] = None
+                ROOM["rules_locked"] = True
                 _ensure_board()
-                return {"ok": True, "settings": s}
+                return {"ok": True, "settings": s, "rules_locked": True}
             return {"ok": False, "error": "不明な設定です"}
     if action == "room_start":
         with LOCK:
