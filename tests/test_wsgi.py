@@ -104,6 +104,11 @@ r = post_json({"action": "give_resources"}, ip="203.0.113.9")
 check(r.get("ok") is False, "give_resources denied from remote address")
 
 # --- drafts (roll + pick) ---------------------------------------------------
+# all house rules must be fixed before starting
+for key,val in (("desert","center"),("numbers","official"),("victory",10)):
+    r = post_json({"action": "room_setting", "token": tok_a, "key": key, "value": val})
+    check(r.get("ok") is True, f"room_setting({key}) accepted")
+
 r = post_json({"action": "room_roll", "token": tok_a})
 check(r.get("ok") is True, "room_roll accepted")
 r = post_json({"action": "room_roll", "token": tok_b})

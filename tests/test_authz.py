@@ -45,6 +45,9 @@ def fresh_started_room():
     a = handle_lobby("join", {"name": "アリス"})
     b = handle_lobby("join", {"name": "ボブ"})
     ta, tb = a["token"], b["token"]
+    # all house rules must be fixed before starting
+    for key,val in (("desert","center"),("numbers","official"),("victory",10)):
+        handle_lobby("room_setting", {"token": ta, "key": key, "value": val})
     handle_lobby("room_roll", {"token": ta})
     handle_lobby("room_roll", {"token": tb})
     seats = ROOM["seats"]

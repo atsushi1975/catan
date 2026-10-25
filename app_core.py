@@ -602,6 +602,11 @@ def handle_lobby(action, payload, local=True):
             _sync_board()
             if ROOM["g"] is None and len(seats) >= 2:
                 _ensure_board()
+            # If nobody is left in the lobby, reset house rules.
+            if not ROOM["seats"]:
+                ROOM["settings"] = {}
+                ROOM["rules_fixed"] = {"desert": False, "numbers": False, "victory": False}
+                ROOM["g"] = None
             return {"ok": True}
     if action == "room_reset":
         # Dev/monitor reset of the whole room. Refused for remote callers: a

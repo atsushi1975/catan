@@ -242,7 +242,7 @@
   let booted = false;
   let lastRecoverTry = 0;
   let lastRoom = null;      // last successful /room answer, for diagLine()
-  const VERSION = 'v48';   // shown by diagLine(); bump whenever the client changes
+  const VERSION = 'v49';   // shown by diagLine(); bump whenever the client changes
   // Debug/diagnostic text stays hidden for players. Add ?diag=1 to the URL
   // (player or monitor page) when the build string or seat state is needed.
   const SHOW_DIAG = (() => {
@@ -478,7 +478,8 @@
     const hasDesert = Object.prototype.hasOwnProperty.call(st, 'desert');
     for (const [val, label, title] of desertOpts) {
       const checked = hasDesert ? st.desert === val : false;
-      html += `<label class="radio" title="${title}">
+      const fixedNow = fixed.desert && checked;
+      html += `<label class="radio${fixedNow ? ' fixed' : ''}" title="${title}">
         <input type="radio" name="rule-desert" value="${val}" ${checked ? 'checked' : ''} ${fixed.desert ? 'disabled' : ''}>
         ${label}</label>`;
     }
@@ -487,7 +488,8 @@
     const hasVictory = Object.prototype.hasOwnProperty.call(st, 'victory');
     for (const [val, label, title] of victoryOpts) {
       const checked = hasVictory ? Number(st.victory) === val : false;
-      html += `<label class="radio" title="${title}">
+      const fixedNow = fixed.victory && checked;
+      html += `<label class="radio${fixedNow ? ' fixed' : ''}" title="${title}">
         <input type="radio" name="rule-victory" value="${val}" ${checked ? 'checked' : ''} ${fixed.victory ? 'disabled' : ''}>
         ${label}</label>`;
     }
@@ -496,7 +498,8 @@
     const hasNumbers = Object.prototype.hasOwnProperty.call(st, 'numbers');
     for (const [val, label, title] of numberOpts) {
       const checked = hasNumbers ? st.numbers === val : false;
-      html += `<label class="radio" title="${title}">
+      const fixedNow = fixed.numbers && checked;
+      html += `<label class="radio${fixedNow ? ' fixed' : ''}" title="${title}">
         <input type="radio" name="rule-numbers" value="${val}" ${checked ? 'checked' : ''} ${fixed.numbers ? 'disabled' : ''}>
         ${label}</label>`;
     }
@@ -699,3 +702,15 @@
 </script>
 </body>
 </html>
+
+  #lobby .rules-row.fixed { background: #1f2a35; border: 1px solid #4a9fd0; border-radius: 6px; padding: 6px 8px; }
+  #lobby .rules-row.fixed .rules-label { color: #9fc9ff; }
+  #lobby .radio input[disabled] + span,
+  #lobby .radio:has(input[disabled]) { opacity: 0.6; }
+
+  #lobby .rules-row.fixed { background: linear-gradient(90deg, #1f2f3d 0%, #18212b 100%); border: 1px solid #5fb3ff; border-radius: 6px; padding: 6px 8px; }
+  #lobby .rules-row.fixed .rules-label { color: #b8dcff; font-weight: bold; }
+  #lobby .rules-row.fixed .radio { opacity: 0.7; }
+
+  #lobby .radio.fixed { background: linear-gradient(90deg, #1f2f3d 0%, #18212b 100%); border: 1px solid #5fb3ff; border-radius: 4px; padding: 2px 6px; color: #b8dcff; font-weight: bold; }
+  #lobby .radio.fixed input { opacity: 0.7; }
