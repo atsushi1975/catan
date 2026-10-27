@@ -9,7 +9,7 @@
 # IMPORTANT: the game state (ROOM) lives in this process's memory. Run ONE
 # worker process (single process, e.g. "--threads N") so every request sees the
 # same game. Restarting the process resets the room.
-import json, os, sys, threading, secrets
+import json, math, os, sys, threading, secrets, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from game.game import Game
@@ -67,7 +67,27 @@ ROOM = {
         "numbers": "official",  # "official" | "random"
         "victory": 10,          # 10 | 7
     },
+    # Leaving a running game (see "exit_request" below). These keys are reset by
+    # reset_room() EXCEPT notice / *_seq: the notice has to outlive the reset so
+    # the players can still be told why the game vanished.
+    "exit_request": None,   # {"id","seat","votes":{seat: bool},"expires"} or None
+    "exit_cooldown": {},    # seat index -> time until which it may not ask again
+    "notice": None,         # {"id","text","time"}
+    "exit_seq": 0,          # ids only ever grow, also across resets
+    "notice_seq": 0,
+    "last_seen": None,      # last time a seated player's token touched the server
 }
+
+# Timings (seconds). Constants so the tests can shorten them.
+EXIT_VOTE_SECONDS = 30       # how long the others have to answer an exit request
+EXIT_COOLDOWN_SECONDS = 120  # a refused / expired requester must wait this long
+NOTICE_SECONDS = 60          # how long the "game aborted" notice stays visible
+IDLE_RESET_SECONDS = 600     # finished game with nobody seated around -> reset
+
+
+def _now():
+    """Single clock for all timing logic, so the tests can replace it."""
+    return time.time()
 
 # Player colours. Each seat picks one in the lobby (all different); the game
 # itself only stores the name, and the browser maps it to a hex value.
@@ -108,6 +128,10 @@ def reset_room():
         ROOM["color_slots"] = {}
         ROOM["settings"] = {}
         ROOM["rules_fixed"] = {"desert": False, "numbers": False, "victory": False}
+        ROOM["exit_request"] = None
+        ROOM["exit_cooldown"] = {}
+        ROOM["last_seen"] = None
+        # ROOM["notice"] and the *_seq counters are deliberately kept.
 
 
 def _new_token():
@@ -548,6 +572,8 @@ def handle_lobby(action, payload, local=True):
             # rejoin: an existing token keeps its seat
             for s in ROOM["seats"]:
                 if s.get("token") == token:
+                    if s.get("left"):
+                        return {"ok": False, "error": "退出済みの席には戻れません"}
                     if name:
                         s["name"] = name
                     return {"ok": True, "token": token,
@@ -587,7 +613,15 @@ def handle_lobby(action, payload, local=True):
             if seat is None:
                 return {"ok": False, "error": "not joined"}
             if ROOM["phase"] != "lobby":
-                return {"ok": False, "error": "ゲーム進行中は退出できません（監視画面の初期化でロビーに戻してください）"}
+                # After the game: the seat stays (player ids must not shift),
+                # it is only marked. Before a winner exists use exit_request.
+                g = ROOM.get("g")
+                if g is None or g.winner is None:
+                    return {"ok": False, "error": "ゲーム中は退出要求を使ってください"}
+                ROOM["seats"][seat]["left"] = True    # leaving twice is harmless
+                if all(s.get("left") for s in ROOM["seats"]):
+                    reset_room()
+                return {"ok": True}
             seats = ROOM["seats"]
             seats.pop(seat)
             # seats shift down: re-index the draft choices and drop the roll of
@@ -607,6 +641,51 @@ def handle_lobby(action, payload, local=True):
                 ROOM["settings"] = {}
                 ROOM["rules_fixed"] = {"desert": False, "numbers": False, "victory": False}
                 ROOM["g"] = None
+            return {"ok": True}
+    if action in ("exit_request", "exit_vote", "exit_cancel"):
+        # Leaving a RUNNING game needs everybody else's yes. All three need the
+        # token of a seat that has not left: spectators / the monitor / people
+        # without a seat can neither ask nor vote nor cancel.
+        with LOCK:
+            _evaluate_exit_request()
+            seat = _active_seat_of(token)
+            if seat is None:
+                return {"ok": False, "error": "not joined"}
+            g = ROOM.get("g")
+            req = ROOM.get("exit_request")
+            if action == "exit_request":
+                if ROOM["phase"] != "playing" or g is None or g.winner is not None:
+                    return {"ok": False, "error": "進行中のゲームがありません"}
+                if req is not None:
+                    return {"ok": False, "error": "すでに退出要求があります"}
+                wait = ROOM["exit_cooldown"].get(seat, 0) - _now()
+                if wait > 0:
+                    return {"ok": False,
+                            "error": f"退出要求はあと{int(math.ceil(wait))}秒たってから出し直してください"}
+                ROOM["exit_seq"] += 1
+                ROOM["exit_request"] = {"id": ROOM["exit_seq"], "seat": seat, "votes": {},
+                                        "expires": _now() + EXIT_VOTE_SECONDS}
+                _evaluate_exit_request()      # nobody to ask -> settled right away
+                return {"ok": True, "id": ROOM["exit_seq"]}
+            if req is None:
+                return {"ok": False, "error": "退出要求はありません"}
+            if action == "exit_cancel":
+                if seat != req["seat"]:
+                    return {"ok": False, "error": "取り消せるのは要求した本人だけです"}
+                ROOM["exit_request"] = None   # a cancel is no refusal: no cooldown
+                return {"ok": True}
+            # exit_vote
+            if seat == req["seat"]:
+                return {"ok": False, "error": "自分の退出要求には投票できません"}
+            if payload.get("id") != req["id"]:
+                return {"ok": False, "error": "その退出要求はもう有効ではありません"}
+            approve = payload.get("approve")
+            if not isinstance(approve, bool):
+                return {"ok": False, "error": "approve は true / false で指定してください"}
+            if seat in req["votes"]:
+                return {"ok": False, "error": "投票済みです"}
+            req["votes"][seat] = approve
+            _evaluate_exit_request()
             return {"ok": True}
     if action == "room_reset":
         # Dev/monitor reset of the whole room. Refused for remote callers: a
@@ -759,6 +838,107 @@ def _seat_of(token):
     return None
 
 
+def _active_seat_of(token):
+    """Seat index of a token whose owner has NOT left the finished game."""
+    i = _seat_of(token)
+    if i is None or ROOM["seats"][i].get("left"):
+        return None
+    return i
+
+
+# ---------------------------------------------------------------------------
+# Leaving a running game (consent of everybody else) and idle clean-up
+#   Nothing here runs on a timer thread: every request calls _housekeeping()
+#   first, inside LOCK, and the pending request / idle room is settled lazily.
+# ---------------------------------------------------------------------------
+def _evaluate_exit_request():
+    """Settle the pending exit request, if any. Call with LOCK held."""
+    req = ROOM.get("exit_request")
+    if req is None:
+        return
+    g = ROOM.get("g")
+    if ROOM["phase"] != "playing" or g is None or g.winner is not None:
+        # The game ended (or is gone) on its own: there is nothing to ask about.
+        ROOM["exit_request"] = None
+        return
+    seats = ROOM["seats"]
+    asker = req["seat"]
+    votes = req["votes"]
+    others = [i for i, s in enumerate(seats) if i != asker and not s.get("left")]
+    now = _now()
+    # Everybody else said yes -> abort the game. (Assumption: with nobody else
+    # at the table the "all" is vacuously true and the lone player just leaves.)
+    if all(votes.get(i) is True for i in others):
+        name = seats[asker].get("name") or f"プレイヤー{asker + 1}"
+        ROOM["notice_seq"] += 1
+        ROOM["notice"] = {"id": ROOM["notice_seq"], "time": now,
+                          "text": f"ゲームは中止されました（{name}さんの退出）"}
+        ROOM["exit_request"] = None
+        reset_room()      # keeps ROOM["notice"]
+        return
+    # One "no", or time ran out (no answer counts as "no") -> refused.
+    if any(v is False for v in votes.values()) or now >= req["expires"]:
+        ROOM["exit_request"] = None
+        # Assumption: the cooldown starts when the request ended. Evaluation is
+        # lazy, so for an expiry use the expiry moment, not the time we noticed.
+        ROOM["exit_cooldown"][asker] = min(now, req["expires"]) + EXIT_COOLDOWN_SECONDS
+
+
+def _auto_reset_if_idle():
+    """A FINISHED game nobody seated has touched for IDLE_RESET_SECONDS is reset.
+
+    A running game is never reset here (restart the server for that). If no
+    seated token was ever seen (hot-seat monitor game) there is nothing to time,
+    so it is left alone as well.
+    """
+    g = ROOM.get("g")
+    seen = ROOM.get("last_seen")
+    if (ROOM["phase"] == "playing" and g is not None and g.winner is not None
+            and seen is not None and _now() - seen >= IDLE_RESET_SECONDS):
+        reset_room()
+
+
+def _touch(token):
+    """Remember that a seated player is around. Spectators / monitors do not count."""
+    if _active_seat_of(token) is not None:
+        ROOM["last_seen"] = _now()
+
+
+def _housekeeping(token):
+    """Top of every dynamic request, with LOCK held. Order matters: settle
+    first, THEN record this visit, so a visit after the idle limit cannot
+    save the room."""
+    _evaluate_exit_request()
+    _auto_reset_if_idle()
+    _touch(token)
+
+
+def _exit_request_view(token):
+    """What this player may see of the pending exit request (None if nothing).
+
+    Only seated, not-left players get it, and nobody sees how the others voted.
+    """
+    req = ROOM.get("exit_request")
+    seat = _active_seat_of(token)
+    if req is None or seat is None:
+        return None
+    mine = (seat == req["seat"])
+    asker = ROOM["seats"][req["seat"]]
+    return {"id": req["id"],
+            "by": asker.get("name") or f"プレイヤー{req['seat'] + 1}",
+            "mine": mine,
+            "my_vote": None if mine else req["votes"].get(seat),
+            "remaining": max(0, int(math.ceil(req["expires"] - _now())))}
+
+
+def _notice_view():
+    """The "game aborted" notice while it is fresh. Public: no token needed."""
+    n = ROOM.get("notice")
+    if n and _now() - n["time"] <= NOTICE_SECONDS:
+        return {"id": n["id"], "text": n["text"]}
+    return None
+
+
 def handle_action(action, payload, actor, local=True):
     """Returns the response dict, or None if the action is unknown.
 
@@ -775,6 +955,11 @@ def handle_action(action, payload, actor, local=True):
         if actor is not None:
             return {"ok": False, "error": "monitor only"}
         with LOCK:
+            # Players who already left a finished game must not come back as
+            # ghost seats; a pending exit request belongs to the game that ends.
+            ROOM["seats"] = [s for s in ROOM["seats"] if not s.get("left")]
+            ROOM["exit_request"] = None
+            ROOM["exit_cooldown"] = {}
             for s in ROOM["seats"]:
                 s["roll"] = None
             ROOM["order"] = []
@@ -966,7 +1151,9 @@ def route_get(path, query, client_ip):
         return _file_response(path.lstrip('/'))
 
     if path == '/room':
-        body = json.dumps(serialize_room(token)).encode()
+        with LOCK:
+            _housekeeping(token)
+            body = json.dumps(serialize_room(token)).encode()
         return (200, 'application/json; charset=utf-8', body)
     if path == '/env':
         body = json.dumps({'debug_allowed': _debug_allowed(client_ip),
@@ -975,12 +1162,23 @@ def route_get(path, query, client_ip):
         return (200, 'application/json; charset=utf-8', body)
     if path == '/state':
         with LOCK:
+            _housekeeping(token)
             g = game()
+            notice = _notice_view()      # public: also for spectators / no seat
             if g is None or ROOM['phase'] != 'playing':
-                body = json.dumps({'phase': 'lobby', 'started': False}).encode()
+                data = {'phase': 'lobby', 'started': False}
+                if notice:
+                    data['notice'] = notice
+                body = json.dumps(data).encode()
                 return (200, 'application/json; charset=utf-8', body)
             viewer = _resolve_viewer(token, client_ip, (query.get('view') or [None])[0])
-            body = json.dumps(serialize(g, viewer)).encode()
+            data = serialize(g, viewer)
+            if notice:
+                data['notice'] = notice
+            exit_req = _exit_request_view(token)
+            if exit_req:
+                data['exit_request'] = exit_req
+            body = json.dumps(data).encode()
             return (200, 'application/json; charset=utf-8', body)
 
     return (404, 'text/plain; charset=utf-8', b'Not Found')
@@ -1010,6 +1208,7 @@ def route_post(payload, query, client_ip):
     local = _debug_allowed(client_ip)
     try:
         with LOCK:
+            _housekeeping(token)
             lobby_res = handle_lobby(action, payload, local=local)
             if lobby_res is not None:
                 return lobby_res
