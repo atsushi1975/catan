@@ -570,7 +570,7 @@ function renderEventLog() {
 }
 
 // A toast near the centre of the screen; fades out on its own.
-function showToast(text, kind, priv) {
+function showToast(text, kind, priv, ms) {
   let host = document.getElementById('toast-host');
   if (!host) {
     host = document.createElement('div');
@@ -586,7 +586,7 @@ function showToast(text, kind, priv) {
   setTimeout(() => {
     t.classList.remove('show');
     setTimeout(() => { if (t.parentNode) t.parentNode.removeChild(t); }, 400);
-  }, 3200);
+  }, ms || 3200);
 }
 
 // Called on every /state poll. Shows anything new since the last poll.
@@ -685,6 +685,168 @@ function updateRoleBanner() {
   bar.textContent = '観戦モード：このブラウザはこのゲームの席を持っていません';
 }
 
+// ---------------------------------------------------------------------------
+// Leaving the game
+//   * after the game (winner decided): "ロビーに戻る" calls leave
+//   * during the game: "退出する" asks the others (exit_request); they answer
+//     from a banner at the top of the screen, which never blocks the board
+//   * the server aborts the game when everybody agrees and tells us through
+//     state.notice (the room is reset, so /state then has no players at all)
+// ---------------------------------------------------------------------------
+let exitReq = null;           // pending request from the last poll (+ `got`: when we received it)
+let exitVoted = null;         // id of the request this player has already answered
+let exitCancelled = false;    // this player cancelled their own request: no "refused" toast
+
+function isSeated() {
+  return VIEW === 'client' && !READONLY && !!state &&
+    state.you !== null && state.you !== undefined;
+}
+function isGameOver() {
+  return !!state && state.winner !== null && state.winner !== undefined;
+}
+
+// A toast raised just before location.reload() would vanish with the page, so
+// it is parked in sessionStorage and shown by the freshly loaded page (the lobby).
+function flashAfterReload(text, ms) {
+  try { sessionStorage.setItem('catan_flash', JSON.stringify({ text: text, ms: ms })); } catch (e) {}
+}
+function showFlash() {
+  let f = null;
+  try {
+    f = JSON.parse(sessionStorage.getItem('catan_flash') || 'null');
+    sessionStorage.removeItem('catan_flash');
+  } catch (e) {}
+  if (f && f.text) showToast(f.text, 'info', false, f.ms);
+}
+
+// Drop the saved token so the next load shows the join form (same bookkeeping
+// as the stale-token branch in getState and the lobby's own leave button).
+function forgetSeatLocally() {
+  try {
+    const t = JSON.parse(localStorage.getItem('catan_tokens') || '{}') || {};
+    delete t[sessionStorage.getItem('catan_tabid')];
+    localStorage.setItem('catan_tokens', JSON.stringify(t));
+    const last = JSON.parse(localStorage.getItem('catan_last_seat') || '{}') || {};
+    if (last && last.token && last.token === TOKEN) localStorage.removeItem('catan_last_seat');
+  } catch (e) {}
+}
+
+// state.notice: the game was aborted. Handled before anything else in getState,
+// so neither the "no players -> reload" shortcut nor the "connection lost"
+// alert gets in the way. Every notice is shown once (the id survives reloads
+// for 2 minutes, see below).
+function handleNotice(raw) {
+  const n = raw && raw.notice;
+  if (!n || VIEW !== 'client') return false;
+  // A seat in a running game means the notice is about an OLDER game (it
+  // outlives the reset for a while): never throw a live player out of theirs.
+  if (raw.players && raw.you !== null && raw.you !== undefined) return false;
+  let seen = null;
+  try { seen = JSON.parse(sessionStorage.getItem('catan_notice_seen') || 'null'); } catch (e) {}
+  // Ids start again at 1 after a server restart, so a remembered id only counts
+  // for a little longer than the notice lives on the server (60 s).
+  if (seen && String(seen.id) === String(n.id) && Date.now() - seen.at < 120000) return false;
+  try { sessionStorage.setItem('catan_notice_seen', JSON.stringify({ id: n.id, at: Date.now() })); } catch (e) {}
+  flashAfterReload(n.text || 'ゲームは中止されました', 8000);
+  forgetSeatLocally();
+  location.reload();
+  return true;
+}
+
+// Called on every poll that carries a game: remember the request, and tell the
+// asker when it ended without the game being aborted.
+function handleExitRequest(raw) {
+  const er = raw.exit_request || null;
+  const prev = exitReq;
+  const gone = !er || (prev && er.id !== prev.id);
+  if (prev && prev.mine && gone && !exitCancelled && !isGameOver()) {
+    showToast('退出は許可されませんでした', 'info');
+  }
+  if (gone) exitCancelled = false;
+  exitReq = er ? Object.assign({}, er, { got: Date.now() }) : null;
+  updateExitUI();
+}
+
+function exitRemaining() {
+  if (!exitReq) return 0;
+  return Math.max(0, exitReq.remaining - Math.floor((Date.now() - exitReq.got) / 1000));
+}
+
+async function sendExit(action, extra) {
+  let r = null;
+  try { r = await post(action, extra || {}); } catch (e) { r = null; }
+  if (!r || !r.ok) showToast((r && r.error) || '送信できませんでした', 'info');
+  return !!(r && r.ok);
+}
+
+function renderExitBanner() {
+  let bar = document.getElementById('exit-banner');
+  const er = exitReq;
+  const show = isSeated() && !!er && !isGameOver() &&
+    (er.mine || (er.my_vote === null && exitVoted !== er.id));
+  if (!show) { if (bar) bar.remove(); return; }
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'exit-banner';
+    bar.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:65;padding:3px 8px;' +
+      'background:#3a1f1f;color:#ffd0d0;font-size:12px;line-height:1.3;text-align:center;' +
+      'border-bottom:2px solid #ff6b6b;box-shadow:0 2px 8px rgba(0,0,0,.5)';
+    document.body.appendChild(bar);
+  }
+  // Rebuild the buttons only when the request (or who is looking at it) changes,
+  // so the countdown tick never swallows a tap.
+  const key = (er.mine ? 'm' : 'o') + er.id;
+  if (bar.dataset.key !== key) {
+    bar.dataset.key = key;
+    bar.innerHTML = '<span class="exit-text"></span> <span class="exit-btns"></span>';
+    const box = bar.querySelector('.exit-btns');
+    const mk = (label, fn) => {
+      const b = document.createElement('button');
+      b.className = 'btn';
+      b.style.cssText = 'padding:2px 10px;font-size:12px;margin:1px 2px;';   // keep the bar low
+      b.textContent = label;
+      b.onclick = fn;
+      box.appendChild(b);
+    };
+    if (er.mine) {
+      mk('取り消す', async () => {
+        exitCancelled = true;
+        if (!(await sendExit('exit_cancel'))) exitCancelled = false;
+      });
+    } else {
+      const vote = async (approve) => {
+        exitVoted = er.id;                      // close the banner at once
+        renderExitBanner();
+        if (!(await sendExit('exit_vote', { id: er.id, approve: approve }))) {
+          exitVoted = null;                     // not counted: let the player answer again
+          renderExitBanner();
+        }
+      };
+      mk('許可する', () => vote(true));
+      mk('許可しない', () => vote(false));
+    }
+  }
+  const sec = exitRemaining();
+  bar.querySelector('.exit-text').textContent = er.mine
+    ? '他のプレイヤーの返事を待っています（残り' + sec + '秒）'
+    : er.by + 'さんが退出ボタンを押しました。許可しますか？（残り' + sec + '秒）';
+}
+
+function updateExitUI() {
+  const panel = document.getElementById('exit-panel');
+  if (panel) {
+    const over = isGameOver();
+    panel.style.display = isSeated() ? 'block' : 'none';
+    const be = document.getElementById('btn-exit');
+    const bl = document.getElementById('btn-backlobby');
+    const note = document.getElementById('exit-note');
+    if (be) { be.style.display = over ? 'none' : ''; be.disabled = !!exitReq; }
+    if (bl) bl.style.display = over ? '' : 'none';
+    if (note) note.style.display = over ? 'block' : 'none';
+  }
+  renderExitBanner();
+}
+
 function api(path) {
   let url = path;
   const params = [];
@@ -699,6 +861,7 @@ function api(path) {
 async function getState() {
   fitCanvas();          // keep the canvas matched to its box (sheet, rotation, ...)
   const raw = await api('/state');
+  if (handleNotice(raw)) return;      // game aborted: before any "no players / no seat" handling
   if (!raw || !raw.players) {
     state = raw || {phase: 'lobby', started: false};
     // Keep whatever the lobby preview set up; game.js must not reset `state`
@@ -776,6 +939,7 @@ async function getState() {
   updateMobileToggle();
   handleEvents(state.events);
   handlePrivateEvents(state.private_events);
+  handleExitRequest(state);
 }
 async function post(action, extra={}) {
   const body = Object.assign({action}, extra);
@@ -1982,6 +2146,11 @@ function sidebarHTML() {
         <button class="btn" id="btn-robber-cancel">キャンセル</button>
       </div>
     </div>
+    <div id="exit-panel" style="display:none;margin:4px 0;">
+      <button class="btn" id="btn-exit">退出する</button>
+      <button class="btn" id="btn-backlobby" style="display:none;">ロビーに戻る</button>
+      <div id="exit-note" style="display:none;font-size:11px;color:#aaa;margin-top:2px;">みんなが戻ると、部屋は自動でリセットされます</div>
+    </div>
     <div id="status">読み込み中...</div>
     <div id="hand" class="hand-row" style="display:none;"></div>
     <div>
@@ -2119,6 +2288,25 @@ function bindButtons() {
   const ba = document.getElementById('btn-auto');
   if (ba) ba.onclick = async () => { await post('auto_setup'); };
   document.getElementById('btn-buydev').onclick = async () => { await post('buy_dev'); };
+  document.getElementById('btn-exit').onclick = async () => { await sendExit('exit_request'); };
+  const backBtn = document.getElementById('btn-backlobby');
+  backBtn.onclick = async () => {
+    backBtn.disabled = true;
+    let r = null;
+    try {
+      // Not post(): it refreshes the state afterwards, and the page reload that
+      // can trigger would race with forgetting the token below.
+      r = await fetch('/action', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({action:'leave', token: TOKEN})}).then(x => x.json());
+    } catch (e) { r = null; }
+    if (!r || !r.ok) {
+      backBtn.disabled = false;
+      showToast((r && r.error) || '退出できませんでした', 'info');
+      return;
+    }
+    forgetSeatLocally();
+    location.reload();
+  };
   document.getElementById('btn-playdev').onclick = async () => {
     const card = document.getElementById('dev-select').value;
     if (!card) return;
@@ -2280,7 +2468,13 @@ function boot(opts) {
   resize();
   getState();
   setInterval(getState, 2000);
+  setInterval(renderExitBanner, 1000);     // the countdown in the exit banner
 }
+
+// Show a message parked by flashAfterReload() (also on the lobby page, which
+// loads this script but may never boot the game).
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', showFlash);
+else showFlash();
 
 window.CatanGame = {
   boot,
