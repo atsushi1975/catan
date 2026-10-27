@@ -190,6 +190,8 @@ check(r and r.get("ok") is False, "remote valid token: out-of-turn roll refused"
 handle_lobby("room_reset", {})
 a = handle_lobby("join", {"name": "x"})
 b = handle_lobby("join", {"name": "y"})
+for key, val in (("desert", "center"), ("numbers", "official"), ("victory", 10)):
+    handle_lobby("room_setting", {"token": a["token"], "key": key, "value": val})
 handle_lobby("room_roll", {"token": a["token"]})
 handle_lobby("room_roll", {"token": b["token"]})
 seats = ROOM["seats"]
