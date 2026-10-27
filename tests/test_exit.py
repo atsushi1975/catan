@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Leaving a game: after the game (leave) and during it (consent of the others).
 
-  A. leave after a winner exists marks the seat as left; everybody left -> reset
+  A. leave after a winner exists: ONE player pressing sends everybody back to
+     the lobby (room reset + notice). While the game runs it is refused.
   B. exit_request / exit_vote / exit_cancel: every other player must agree
   C. state: the pending request is shown only to seated players (no votes of
      others); the "game aborted" notice is public for NOTICE_SECONDS
@@ -95,35 +96,43 @@ t = start_game(2)
 r = act("leave", t[0])
 check(r.get("ok") is False and "退出要求" in r.get("error", ""),
       "leave while the game runs (no winner) is refused, pointing at the exit request")
-check(in_game() and not ROOM["seats"][0].get("left"), "a refused leave changes nothing")
+check(in_game() and len(ROOM["seats"]) == 2, "a refused leave changes nothing")
 
 finish()
+st = state(t[1])
+check(st.get("phase") != "lobby" and st.get("winner") == 0,
+      "before anybody leaves, the others can read the finished game")
 r = act("leave", t[0])
 check(r.get("ok") is True, "leave after a winner exists is accepted")
-check(len(ROOM["seats"]) == 2 and ROOM["seats"][0].get("left") is True,
-      "the seat is kept and only marked left")
-check(in_game(), "one player leaving does not reset the room")
+check(in_lobby_empty(), "ONE player leaving sends everybody back: the room is reset")
 st = state(t[1])
-check(st.get("phase") != "lobby" and len(st.get("players", [])) == 2,
-      "the others can still read the finished game")
-check(state(t[1]).get("winner") == 0, "...including who won")
-
-r = handle_lobby("join", {"name": "アリス", "token": t[0]})
-check(r.get("ok") is False, "a left seat's token cannot join (rejoin) again")
-check(ROOM["seats"][0].get("left") is True, "the refused rejoin did not clear the flag")
-
-r = act("leave", t[0])
-check(r.get("ok") is True and in_game(), "leaving twice is harmless")
+check(st.get("phase") == "lobby" and "players" not in st,
+      "the others now get the lobby from /state")
+check(st.get("notice", {}).get("text") == "アリスさんがロビーに戻りました",
+      "...with a notice that names who went back")
+check(state(None).get("notice") is not None, "the notice is public (no token needed)")
 r = act("leave", t[1])
-check(r.get("ok") is True, "the last player leaves")
-check(in_lobby_empty(), "everybody left -> the room is reset")
+check(r.get("ok") is False and in_lobby_empty(),
+      "the other player's seat is gone too: a second leave is refused, nothing breaks")
+
+# three players: still one press is enough
+t = start_game(3)
+finish()
+check(act("leave", t[2]).get("ok") is True and in_lobby_empty(),
+      "3 players: one leave resets the room for all of them")
+check("カレン" in state(None).get("notice", {}).get("text", ""), "...and names the player who pressed")
+# the seats are gone, so the old tokens cannot act in the new lobby
+check(all(act("room_roll", x).get("ok") is False for x in t), "old tokens no longer have a seat")
+r = handle_lobby("join", {"name": "新しい人"})
+check(r.get("ok") is True and len(ROOM["seats"]) == 1, "everybody can join the fresh lobby again")
+handle_lobby("room_reset", {})
 
 # D: no seat, no leave
 t = start_game(2)
 finish()
 check(act("leave", None).get("ok") is False, "leave without a token is refused")
 check(act("leave", "made-up-token").get("ok") is False, "leave with an unknown token is refused")
-check(in_game() and not any(s.get("left") for s in ROOM["seats"]), "...and nothing was marked")
+check(in_game() and len(ROOM["seats"]) == 2, "...and the finished game is untouched")
 handle_lobby("room_reset", {})
 
 # the old lobby leave still works
@@ -366,19 +375,6 @@ state(t[0])
 at(9600)
 st = state(t[0])
 check(st.get("phase") == "lobby" and in_lobby_empty(), "a seated visit after the limit finds the room reset")
-
-# a player who has left does not keep the room alive
-at(10000)
-t = start_game(3)
-finish()
-state(t[0])
-act("leave", t[2])
-at(10500)
-state(t[2])
-check(ROOM["last_seen"] == 10000.0, "a left player's visits do not count")
-at(10600)
-state(None)
-check(in_lobby_empty(), "...so the room resets 600 s after the last player still seated")
 
 # the limit is a constant the tests can change
 at(11000)

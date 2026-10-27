@@ -2149,7 +2149,7 @@ function sidebarHTML() {
     <div id="exit-panel" style="display:none;margin:4px 0;">
       <button class="btn" id="btn-exit">退出する</button>
       <button class="btn" id="btn-backlobby" style="display:none;">ロビーに戻る</button>
-      <div id="exit-note" style="display:none;font-size:11px;color:#aaa;margin-top:2px;">みんなが戻ると、部屋は自動でリセットされます</div>
+      <div id="exit-note" style="display:none;font-size:11px;color:#aaa;margin-top:2px;">誰かが押すと、全員ロビーに戻ります</div>
     </div>
     <div id="status">読み込み中...</div>
     <div id="hand" class="hand-row" style="display:none;"></div>
@@ -2291,6 +2291,9 @@ function bindButtons() {
   document.getElementById('btn-exit').onclick = async () => { await sendExit('exit_request'); };
   const backBtn = document.getElementById('btn-backlobby');
   backBtn.onclick = async () => {
+    // One press takes everybody back, so ask first (a stray tap would end the
+    // others' look at the result).
+    if (!confirm('全員がロビーに戻ります。よろしいですか？')) return;
     backBtn.disabled = true;
     let r = null;
     try {
@@ -2299,7 +2302,9 @@ function bindButtons() {
       r = await fetch('/action', {method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({action:'leave', token: TOKEN})}).then(x => x.json());
     } catch (e) { r = null; }
-    if (!r || !r.ok) {
+    // "not joined": somebody else pressed a moment earlier and the room is
+    // already reset, so this seat is gone as well - same result as success.
+    if (!r || !(r.ok || r.error === 'not joined')) {
       backBtn.disabled = false;
       showToast((r && r.error) || '退出できませんでした', 'info');
       return;

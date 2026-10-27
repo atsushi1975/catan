@@ -572,8 +572,6 @@ def handle_lobby(action, payload, local=True):
             # rejoin: an existing token keeps its seat
             for s in ROOM["seats"]:
                 if s.get("token") == token:
-                    if s.get("left"):
-                        return {"ok": False, "error": "退出済みの席には戻れません"}
                     if name:
                         s["name"] = name
                     return {"ok": True, "token": token,
@@ -605,22 +603,25 @@ def handle_lobby(action, payload, local=True):
                 _ensure_board()      # draft is about to open -> show the map
             return {"ok": True, "dice": d, "total": sum(d)}
     if action == "leave":
-        # Leave the table: the seat is removed entirely. Only possible in the
-        # lobby - once the game is running the turn order / player ids would
-        # have to be rebuilt, so the monitor's "初期化" is the way back.
+        # Leave the table. In the lobby the seat is simply removed. Once a
+        # winner exists it sends the whole room back to the lobby (below).
+        # While the game runs it is refused: player ids would have to be
+        # rebuilt, so the way out is exit_request (everybody else must agree).
         with LOCK:
             seat = _seat_of(token)
             if seat is None:
                 return {"ok": False, "error": "not joined"}
             if ROOM["phase"] != "lobby":
-                # After the game: the seat stays (player ids must not shift),
-                # it is only marked. Before a winner exists use exit_request.
+                # After the game, one player going back to the lobby takes
+                # EVERYBODY back: the room is reset (seats are removed, so all
+                # of them join again) and the others are told through the
+                # notice. Before a winner exists use exit_request instead.
                 g = ROOM.get("g")
                 if g is None or g.winner is None:
                     return {"ok": False, "error": "ゲーム中は退出要求を使ってください"}
-                ROOM["seats"][seat]["left"] = True    # leaving twice is harmless
-                if all(s.get("left") for s in ROOM["seats"]):
-                    reset_room()
+                name = ROOM["seats"][seat].get("name") or f"プレイヤー{seat + 1}"
+                _post_notice(f"{name}さんがロビーに戻りました")
+                reset_room()
                 return {"ok": True}
             seats = ROOM["seats"]
             seats.pop(seat)
@@ -648,7 +649,7 @@ def handle_lobby(action, payload, local=True):
         # without a seat can neither ask nor vote nor cancel.
         with LOCK:
             _evaluate_exit_request()
-            seat = _active_seat_of(token)
+            seat = _seat_of(token)
             if seat is None:
                 return {"ok": False, "error": "not joined"}
             g = ROOM.get("g")
@@ -838,12 +839,13 @@ def _seat_of(token):
     return None
 
 
-def _active_seat_of(token):
-    """Seat index of a token whose owner has NOT left the finished game."""
-    i = _seat_of(token)
-    if i is None or ROOM["seats"][i].get("left"):
-        return None
-    return i
+def _post_notice(text):
+    """Leave a public message that outlives reset_room() (shown for NOTICE_SECONDS).
+
+    Used whenever the whole room is sent back to the lobby at once.
+    """
+    ROOM["notice_seq"] += 1
+    ROOM["notice"] = {"id": ROOM["notice_seq"], "time": _now(), "text": text}
 
 
 # ---------------------------------------------------------------------------
@@ -864,15 +866,13 @@ def _evaluate_exit_request():
     seats = ROOM["seats"]
     asker = req["seat"]
     votes = req["votes"]
-    others = [i for i, s in enumerate(seats) if i != asker and not s.get("left")]
+    others = [i for i in range(len(seats)) if i != asker]
     now = _now()
     # Everybody else said yes -> abort the game. (Assumption: with nobody else
     # at the table the "all" is vacuously true and the lone player just leaves.)
     if all(votes.get(i) is True for i in others):
         name = seats[asker].get("name") or f"プレイヤー{asker + 1}"
-        ROOM["notice_seq"] += 1
-        ROOM["notice"] = {"id": ROOM["notice_seq"], "time": now,
-                          "text": f"ゲームは中止されました（{name}さんの退出）"}
+        _post_notice(f"ゲームは中止されました（{name}さんの退出）")
         ROOM["exit_request"] = None
         reset_room()      # keeps ROOM["notice"]
         return
@@ -900,7 +900,7 @@ def _auto_reset_if_idle():
 
 def _touch(token):
     """Remember that a seated player is around. Spectators / monitors do not count."""
-    if _active_seat_of(token) is not None:
+    if _seat_of(token) is not None:
         ROOM["last_seen"] = _now()
 
 
@@ -919,7 +919,7 @@ def _exit_request_view(token):
     Only seated, not-left players get it, and nobody sees how the others voted.
     """
     req = ROOM.get("exit_request")
-    seat = _active_seat_of(token)
+    seat = _seat_of(token)
     if req is None or seat is None:
         return None
     mine = (seat == req["seat"])
@@ -955,9 +955,7 @@ def handle_action(action, payload, actor, local=True):
         if actor is not None:
             return {"ok": False, "error": "monitor only"}
         with LOCK:
-            # Players who already left a finished game must not come back as
-            # ghost seats; a pending exit request belongs to the game that ends.
-            ROOM["seats"] = [s for s in ROOM["seats"] if not s.get("left")]
+            # A pending exit request belongs to the game that ends here.
             ROOM["exit_request"] = None
             ROOM["exit_cooldown"] = {}
             for s in ROOM["seats"]:
