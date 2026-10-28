@@ -527,6 +527,8 @@ let VIEW = 'monitor';        // 'monitor' | 'client'
 let staleHits = 0;
 let booted = false;
 let READONLY = false;        // monitor mode: view-only, no game actions
+let prevHand = {};
+let prevHandPid = null;
 // The "g | you:..." corner overlay is a debug aid, not player UI.
 // It only appears when the page is opened with ?diag=1.
 const DIAG_ON = (() => {
@@ -638,6 +640,8 @@ function handlePrivateEvents(events) {
   if (events.length) seenPrivateId = Math.max(seenPrivateId, events[events.length - 1].id);
   renderEventLog();
 }
+
+
 
 // A player page must never silently look like a spectator board. If the server
 // says the viewer has no seat, say so on screen instead of showing the hexes
@@ -1710,12 +1714,56 @@ function renderHand(me) {
   if (!el) return;
   const seated = VIEW === 'client' && state && state.you !== null && state.you !== undefined
     && me && me.resources;
-  if (!seated) { el.style.display = 'none'; el.innerHTML = ''; return; }
+  const pid = (state && state.you !== null && state.you !== undefined) ? state.you : null;
+  if (!seated) {
+    el.style.display = 'none';
+    el.innerHTML = '';
+    prevHand = {};
+    prevHandPid = null;
+    return;
+  }
   el.style.display = 'flex';
-  el.innerHTML = RES.map(k => {
-    const n = me.resources[k] || 0;
-    return `<span class="hand-chip${n ? '' : ' zero'}" style="background:${TERRAIN_COLOR[HAND_TERRAIN[k]]};color:${HAND_TEXT[k]};">${resName(k)} ${n}</span>`;
-  }).join('');
+  // Ensure chips exist
+  if (el.children.length !== RES.length) {
+    el.innerHTML = '';
+    for (const k of RES) {
+      const span = document.createElement('span');
+      span.className = 'hand-chip zero';
+      span.style.background = TERRAIN_COLOR[HAND_TERRAIN[k]];
+      span.style.color = HAND_TEXT[k];
+      span.addEventListener('animationend', (ev) => {
+        if (ev.animationName === 'hand-blink') span.classList.remove('gain');
+      });
+      el.appendChild(span);
+    }
+  }
+  const gains = {};
+  if (prevHand && pid !== null && prevHandPid === pid && Object.keys(prevHand).length > 0) {
+    for (const k of RES) {
+      const now = (me.resources && me.resources[k]) ? me.resources[k] : 0;
+      const prev = prevHand[k] || 0;
+      if (now > prev) gains[k] = true;
+    }
+  }
+  const newHand = {};
+  for (let i = 0; i < RES.length; i++) {
+    const k = RES[i];
+    const span = el.children[i];
+    if (!span) continue;
+    const n = (me.resources && me.resources[k]) ? me.resources[k] : 0;
+    newHand[k] = n;
+    span.textContent = resName(k) + ' ' + n;
+    if (n) span.classList.remove('zero');
+    else span.classList.add('zero');
+    if (gains[k]) {
+      span.classList.remove('gain');
+      // force reflow
+      void span.offsetWidth;
+      span.classList.add('gain');
+    }
+  }
+  prevHand = newHand;
+  prevHandPid = pid;
 }
 
 function resStr(d) {

@@ -19,7 +19,27 @@ h2 { margin: 8px 0; font-size: 16px; }
 .hand-row { display: flex; gap: 3px; margin: 6px 0; white-space: nowrap; }
 .hand-chip { flex: 1 1 0; min-width: 0; overflow: hidden; text-align: center;
   font-size: 12px; font-weight: bold; line-height: 1; padding: 6px 0;
-  border-radius: 4px; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.35); }
+  border-radius: 4px; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.35); box-sizing: border-box; }
+
+.hand-chip.gain {
+  animation: hand-blink 0.5s ease-in-out 4;
+}
+
+@keyframes hand-blink {
+  0%, 100% {
+    box-shadow: inset 0 0 0 1px rgba(0,0,0,0.35);
+  }
+  50% {
+    box-shadow: inset 0 0 0 2px #ffffff, inset 0 0 0 4px #000000;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hand-chip.gain {
+    animation: none;
+    box-shadow: inset 0 0 0 2px #ffffff, inset 0 0 0 4px #000000;
+  }
+}
 .hand-chip.zero { opacity: 0.45; }
 .resource { display: flex; justify-content: space-between; padding: 2px 0; }
 .player { padding: 6px; margin: 4px 0; border-radius: 4px; background: #333; }
@@ -106,3 +126,5 @@ h2 { margin: 8px 0; font-size: 16px; }
 .toast.kind-win { border-color: #ffd54f; color: #ffd54f; font-weight: bold; }
 .toast.private { border-color: #ba68c8; color: #f3d9fa; }
 .toast.kind-mine { border-color: #4caf50; color: #c8f7c5; font-weight: bold; }
+
+
