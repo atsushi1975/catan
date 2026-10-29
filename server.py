@@ -51,9 +51,15 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
+    import argparse
+    p = argparse.ArgumentParser()
+    p.add_argument('--port', '-p', type=int, default=None)
+    p.add_argument('--host', default='0.0.0.0')
+    args = p.parse_args()
+    port = args.port if args.port is not None else PORT
     app_core.ensure_started()
-    httpd = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
-    print(f"Catan server running at http://localhost:{PORT}")
+    httpd = ThreadingHTTPServer((args.host, port), Handler)
+    print(f"Catan server running at http://{args.host}:{port}")
     httpd.serve_forever()
 
 
