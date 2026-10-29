@@ -19,6 +19,9 @@ Phase 3 完了 — Pythonバックエンド + Canvas フロントエンド + PWA
 - `server.py` — http.server ベースのバックエンド（外部依存なし）、REST API
 - `web/` — プレイヤー用 `client.html` / 監視用 `index.html` / 共通 `game.js` / `style.css`（旧 `app.js` は未使用）
 - 起動: `python3 server.py` → クライアント http://localhost:8000/ ／ 監視 http://localhost:8000/monitor
+  - ポート・バインド先は `--port` / `-p`、`--host` で指定できる（既定は `0.0.0.0:8000`）
+  - 優先度: コマンドライン引数 > 環境変数 `CATAN_PORT` > `8000`
+  - 例: `python3 server.py -p 8080` ／ `python3 server.py --host 127.0.0.1 -p 8080`
 - 主なエンドポイント: GET `/room`（ロビー）, GET `/state?token=`（自分の視点／無指定は監視の全表示）, POST `/action`（`join`/`room_roll`/`room_pick`/`room_start`/`room_reset`/`room_init`/`monitor_new` と roll, end_turn, build_*, buy_dev, play_dev, move_robber, trade_*, discard, give_resources, auto_setup）
 - ヘックス座標は中心対称レイアウト（radius-2 axial hexagon）に修正済み
 
@@ -593,6 +596,20 @@ v27 の後に「ブラウザを完全終了 → 起動」で復帰できない�
 - **クライアントUI**: `web/game.js` に終了後「ロビーに戻る」ボタン、ゲーム中「退出する」ボタン、投票バナー（残り秒・許可/許可しない/取り消す）を実装。
 - **テスト**: `tests/test_exit.py` を新しい post-win グローバル戻り動作に合わせて更新（全テスト通過）。
 
+## v46: 手札チップの資源増加ハイライト
+- **増えた資源だけ点滅**: `web/game.js` の `renderHand()` が前回の手札（`prevHand` / `prevHandPid`）と比較し、
+  数が増えた資源のチップだけに `.gain` を付ける。
+- **チップの再利用**: 初回だけ `innerHTML` で5枚生成し、以降は `textContent` とクラスの更新のみ。
+  点滅中でも DOM が作り直されないので、アニメーションが途中で切れない。
+- **ハイライトしない場面**: 初回描画・リロード直後・席が変わったとき（`prevHandPid` 不一致）・
+  減少／変化なしのとき。席を外したら `prevHand` を初期化する。
+- **連続増加でも最初から点滅**: `.gain` を外す → `void span.offsetWidth` で強制再計算 → 再付与。
+  `animationend`（`animationName === 'hand-blink'`）で `.gain` を除去する。
+- **CSS**: `web/style.css` の `@keyframes hand-blink`（0.5s × 4回 = 2秒）。
+  チップの色・文字は変えず、`box-shadow: inset` の白黒二重枠だけを点滅させる
+  （全地形色の上で視認でき、幅・高さも動かない）。
+  `prefers-reduced-motion: reduce` ではアニメーションせず、二重枠を表示する。
+
 ## バージョン履歴
-- `web/client.html`: `VERSION = 'v51'`（診断行・ビルド確認用）
+- `web/client.html`: `VERSION = 'v52'`（診断行・ビルド確認用）
 - `node --check web/game.js` で構文確認済み。
