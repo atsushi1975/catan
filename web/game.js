@@ -2028,6 +2028,24 @@ function updateSidebar() {
   }
   status.innerHTML = `フェーズ: <b>${phaseJa[state.phase]||state.phase}</b> | ターン ${state.turn_number||0}<br>手番: <b>${curName}</b> (P${curId})${hint}${extra}${mine}<br>勝者: ${state.winner!==null && state.winner!==undefined?playerName(state.winner):'-'}`;
 
+  // Short-game badge: shown only when the house rule victory_target is not the
+  // standard 10 (i.e. the 7-point game). A missing / "10" value means the standard
+  // game, in which case nothing is rendered and the UI stays untouched.
+  const vt = (state && state.victory_target !== undefined && state.victory_target !== null)
+    ? state.victory_target : 10;
+  const shortGame = vt !== 10;
+  const badgeM = document.querySelector('.victory-badge.v-scope-m');
+  const badgeS = document.querySelector('.victory-badge.v-scope-s');
+  const setBadge = function (el, show) {
+    if (!el) return;
+    if (!show) { el.style.display = 'none'; return; }
+    el.style.display = 'inline-block';
+    el.textContent = (vt === null || vt === undefined) ? '' : vt + '点ゲーム';
+  };
+  const phone = _isPhoneSheet();
+  setBadge(badgeM, !!phone && shortGame);
+  setBadge(badgeS, !phone && shortGame);
+
   const pd = document.getElementById('players');
   pd.innerHTML = '';
   for (const p of state.players) {
@@ -2571,11 +2589,13 @@ function sidebarHTML() {
     return `
     <div id="m-bar" class="m-only">
       <button class="btn" id="btn-togglebar">操作パネルを開く</button>
+      <div class="victory-badge v-scope-m" style="display:none;"></div>
       <span id="m-bar-status"></span>
     </div>
     <div id="sidebar-body">
     <div id="status">読み込み中...</div>
     <div id="m-observe" class="m-only m-note"></div>
+    <div class="victory-badge v-scope-s" style="display:none;"></div>
     <h2>プレイヤー</h2>
     <div id="players"></div>
     <h2>資源（現在の手番）</h2>
@@ -2589,6 +2609,7 @@ function sidebarHTML() {
   return `
     <div id="m-bar" class="m-only">
       <button class="btn" id="btn-togglebar">操作パネルを開く</button>
+      <div class="victory-badge v-scope-m" style="display:none;"></div>
       <span id="m-bar-status"></span>
       <div id="hand-mini" class="hand-row hand-mini" style="display:none;"></div>
     </div>
@@ -2614,6 +2635,7 @@ function sidebarHTML() {
       <button class="btn" id="btn-backlobby" style="display:none;">ロビーに戻る</button>
       <div id="exit-note" style="display:none;font-size:11px;color:#aaa;margin-top:2px;">誰かが押すと、全員ロビーに戻ります</div>
     </div>
+    <div class="victory-badge v-scope-s" style="display:none;"></div>
     <div id="status">読み込み中...</div>
     <div id="hand" class="hand-row" style="display:none;"></div>
     <div>

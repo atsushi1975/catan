@@ -525,6 +525,7 @@ def serialize(g, viewer=None):
         "turn_number": g.turn_number,
         "dice": list(g.dice),
         "winner": g.winner,
+        "victory_target": getattr(g, "victory_target", None) or VICTORY_TARGET,
         "setup_round": getattr(g, "setup_round", 0),
         # True while the current player still must place this step's settlement
         # (i.e. settlement -> road is enforced). False = road is next.

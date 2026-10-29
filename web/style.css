@@ -15,6 +15,22 @@ h2 { margin: 8px 0; font-size: 16px; }
 .panel select { background: #1a1a1a; color: #eee; border: 1px solid #555; border-radius: 4px; }
 .discard-row input { background: #1a1a1a; color: #eee; border: 1px solid #555; border-radius: 4px; }
 #trade-panel select { background: #1a1a1a; color: #eee; border: 1px solid #555; border-radius: 4px; }
+/* Short-game badge (e.g. 7点ゲーム). Only shown when the house-rule victory
+   target is not the standard 10; hidden otherwise (state.victory_target missing
+   or 10 -> nothing rendered, no error). */
+.victory-badge {
+  display: none;
+  font-size: 11px; font-weight: bold; line-height: 1.4;
+  padding: 2px 8px; margin: 0 6px;
+  border-radius: 10px;
+  background: rgba(255, 213, 79, 0.10);
+  border: 1px solid rgba(255, 213, 79, 0.40);
+  color: #ffd54f;
+  white-space: nowrap;
+}
+@media (min-width: 861px) { .victory-badge.v-scope-s { display: inline-block; } }
+@media (max-width: 860px)  { .victory-badge.v-scope-m { display: inline-block; } }
+
 /* the player's hand: five chips on ONE line, even at 360px */
 .hand-row { display: flex; gap: 3px; margin: 6px 0; white-space: nowrap; }
 .hand-chip { flex: 1 1 0; min-width: 0; overflow: hidden; text-align: center;
