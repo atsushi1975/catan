@@ -635,6 +635,34 @@ v27 の後に「ブラウザを完全終了 → 起動」で復帰できない�
 - **変更ファイル**: `web/game.js` / `web/style.css`（`#btn-mute`・`.toast.kind-warn` を追加）。
   既存の配置プレビュー・手番トースト・レイアウト・トースト仕様は変更なし。
 
+## v48: 手札チップを常時表示
+- **スマホ**: `#m-bar`（sticky のまま）に `.hand-mini` を追加し、`flex-wrap: wrap` で2行目に常設。
+  高さ28px・フォント11px・余白2pxで、360px幅でも5資源が折り返さず収まる（320pxでも確認）。
+  シートの開閉・スクロールに関係なく見える。シート内の既存 `#hand` は詳細表示用に残す。
+- **PC**: `#hand` を `position: sticky; top: 0; z-index: 6` に。背景は `#sidebar` と同じ `#1e1e1e`、
+  上方向の `box-shadow` でサイドバーの余白部分も塗り、下の内容が透けない。
+- **共通**: `renderHand()` を `HAND_ROW_IDS = ['hand', 'hand-mini']` のループに変更し、
+  チップ生成・`.zero`・`.gain` 点滅を両方に同じロジックで適用（`animationend` も行ごと）。
+- **盤面への影響**: スマホの `#m-bar` が約45px高くなるが、`#board-wrap` の `min-height: 35vh` は
+  そのまま。360×640 で盤面約35vh＋バーでも収まり、レイアウト崩れは無し。
+
+## v49: 凡例を削除
+- HEXが単色だった頃の名残である「凡例」（地形6色の色見本＋ラベル）を削除した。
+  地形はテクスチャ描画に変わっており、色見本が実際の見た目と一致していなかった。
+- 削除箇所: `sidebarHTML()` の通常版・READONLY版（モニター）の `<h2>凡例</h2>` と
+  `<div id="legend">`、`updateSidebar()` の `legend` 描画ブロック。
+- レイアウト・パネル順・その他の表示は変更なし。`web/` に `legend` 参照は残っていない。
+
+## v50: スマホでシート内の手札行を非表示にする
+- **問題**: スマホ（ボトムシート）で `#m-bar` の常設行（`.hand-mini`）とシート内の
+  既存 `#hand` の**二重表示**になっていた（常時表示 v48 導入時、両方描画していたため）。
+- **修正**: `@media (max-width: 860px)` 内に `#hand { display: none !important; }` を追加し、
+  `web/game.js` の `renderHand()` は `_isPhoneSheet()`（`matchMedia('(max-width: 860px)')`）で
+  判定し、スマホ時は `hand` 行の DOM 更新をスキップして `display: none` を設定。
+  常設行（`.hand-mini`）には手札更新・`.zero`・`.gain`（点滅）をそのまま適用する。
+- **確認**: 常設行とシート行の両方に `.gain` が付いていた問題（常設行にだけ効くべき）を解消。
+  シート行は二重に更新されなくなった。盤面の `min-height: 35vh` は影響なし。
+
 ## バージョン履歴
-- `web/client.html`: `VERSION = 'v54'`（診断行・ビルド確認用）
+- `web/client.html`: `VERSION = 'v57'`（診断行・ビルド確認用）
 - `node --check web/game.js` で構文確認済み。

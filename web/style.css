@@ -21,6 +21,17 @@ h2 { margin: 8px 0; font-size: 16px; }
   font-size: 12px; font-weight: bold; line-height: 1; padding: 6px 0;
   border-radius: 4px; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.35); box-sizing: border-box; }
 
+/* PC: keep the hand visible while the sidebar scrolls. The background matches
+   #sidebar so the list sliding underneath never shows through. */
+@media (min-width: 861px) {
+  #hand {
+    position: sticky; top: 0; z-index: 6;
+    background: #1e1e1e;
+    margin: 0; padding: 6px 0;
+    box-shadow: 0 -12px 0 #1e1e1e, 0 1px 0 #333;
+  }
+}
+
 .hand-chip.gain {
   animation: hand-blink 0.5s ease-in-out 4;
 }
@@ -70,7 +81,7 @@ h2 { margin: 8px 0; font-size: 16px; }
     border-top: 1px solid #444; box-sizing: border-box;
     -webkit-overflow-scrolling: touch;
   }
-  #m-bar { display: flex; align-items: center; gap: 8px;
+  #m-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
     padding: 6px 10px; background: #202020; border-bottom: 1px solid #444;
     /* The sheet scrolls internally, but the toggle must stay reachable: keep
        the bar pinned to the top of the scroll container so "盤面を広く見る" can
@@ -78,6 +89,13 @@ h2 { margin: 8px 0; font-size: 16px; }
     position: sticky; top: 0; z-index: 5; }
   #m-bar .btn { margin: 0; padding: 10px 12px; }
   #m-bar-status { font-size: 12px; color: #bbb; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  /* Compact hand on the second line of the sticky bar: always visible, even
+     with the sheet closed or scrolled. Same .gain blink as the sheet row. */
+  .hand-mini { flex: 1 0 100%; gap: 2px; margin: 4px 0 0; height: 28px; }
+  .hand-mini .hand-chip { padding: 8px 0; font-size: 11px; border-radius: 3px; }
+  /* On a phone the always-visible row above is the only hand: the one inside
+     the scrollable sheet would be a duplicate. (renderHand() skips it too.) */
+  #hand { display: none !important; }
   #sidebar-body { display: none; padding: 8px 10px calc(10px + env(safe-area-inset-bottom, 0px)); }
   body.bar-open #sidebar-body { display: block; }
   .m-only { display: block; }

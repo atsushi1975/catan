@@ -2065,14 +2065,6 @@ function updateSidebar() {
   if (bankEl) {
     bankEl.textContent = '銀行の残り: ' + RES.map(k => `${resName(k)}:${state.bank ? state.bank[k] : '?'}`).join('　');
   }
-  const legend = document.getElementById('legend');
-  if (legend) {
-    const colors = {forest:'#2d8a4e',hills:'#c4956a',pasture:'#8bc34a',fields:'#f9d71c',mountains:'#9e9e9e',desert:'#e8c98a'};
-    const labels = {forest:'木',hills:'土',pasture:'羊',fields:'麦',mountains:'鉄',desert:'砂漠'};
-    legend.innerHTML = Object.keys(colors).map(k =>
-      `<div style="display:flex;align-items:center;gap:6px;"><span style="display:inline-block;width:14px;height:14px;background:${colors[k]};border:1px solid #fff;border-radius:2px;"></span>${labels[k]}</div>`
-    ).join('');
-  }
   if (READONLY) return;   // monitor: informational panels only, no action controls
 
   const devSel = document.getElementById('dev-select');
@@ -2111,33 +2103,44 @@ function updateSidebar() {
 const HAND_TERRAIN = {wood:'forest', brick:'hills', sheep:'pasture', wheat:'fields', ore:'mountains'};
 const HAND_TEXT = {wood:'#fff', brick:'#1b1208', sheep:'#14230a', wheat:'#2a2300', ore:'#161616'};
 
+function _ensureHandChips(el) {
+  if (el.children.length === RES.length) return;
+  el.innerHTML = '';
+  for (const k of RES) {
+    const span = document.createElement('span');
+    span.className = 'hand-chip zero';
+    span.style.background = TERRAIN_COLOR[HAND_TERRAIN[k]];
+    span.style.color = HAND_TEXT[k];
+    span.addEventListener('animationend', (ev) => {
+      if (ev.animationName === 'hand-blink') span.classList.remove('gain');
+    });
+    el.appendChild(span);
+  }
+}
+
+// One renderer for both hand rows: the sticky PC row (#hand) and the compact
+// row that lives in the phone's always-visible #m-bar (#hand-mini).
+// On phones the sheet row is hidden (style.css) and not updated at all.
+const HAND_ROW_IDS = ['hand', 'hand-mini'];
+
+function _isPhoneSheet() {
+  try { return window.matchMedia('(max-width: 860px)').matches; } catch (e) { return false; }
+}
+
 function renderHand(me) {
-  const el = document.getElementById('hand');
-  if (!el) return;
   const seated = VIEW === 'client' && state && state.you !== null && state.you !== undefined
     && me && me.resources;
   const pid = (state && state.you !== null && state.you !== undefined) ? state.you : null;
   if (!seated) {
-    el.style.display = 'none';
-    el.innerHTML = '';
+    for (const id of HAND_ROW_IDS) {
+      const el = document.getElementById(id);
+      if (!el) continue;
+      el.style.display = 'none';
+      el.innerHTML = '';
+    }
     prevHand = {};
     prevHandPid = null;
     return;
-  }
-  el.style.display = 'flex';
-  // Ensure chips exist
-  if (el.children.length !== RES.length) {
-    el.innerHTML = '';
-    for (const k of RES) {
-      const span = document.createElement('span');
-      span.className = 'hand-chip zero';
-      span.style.background = TERRAIN_COLOR[HAND_TERRAIN[k]];
-      span.style.color = HAND_TEXT[k];
-      span.addEventListener('animationend', (ev) => {
-        if (ev.animationName === 'hand-blink') span.classList.remove('gain');
-      });
-      el.appendChild(span);
-    }
   }
   const gains = {};
   if (prevHand && pid !== null && prevHandPid === pid && Object.keys(prevHand).length > 0) {
@@ -2148,20 +2151,31 @@ function renderHand(me) {
     }
   }
   const newHand = {};
-  for (let i = 0; i < RES.length; i++) {
-    const k = RES[i];
-    const span = el.children[i];
-    if (!span) continue;
-    const n = (me.resources && me.resources[k]) ? me.resources[k] : 0;
-    newHand[k] = n;
-    span.textContent = resName(k) + ' ' + n;
-    if (n) span.classList.remove('zero');
-    else span.classList.add('zero');
-    if (gains[k]) {
-      span.classList.remove('gain');
-      // force reflow
-      void span.offsetWidth;
-      span.classList.add('gain');
+  for (const k of RES) {
+    newHand[k] = (me.resources && me.resources[k]) ? me.resources[k] : 0;
+  }
+  const phone = _isPhoneSheet();
+  for (const id of HAND_ROW_IDS) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    // Phones show only the bar row; leave the sheet row hidden and untouched.
+    if (phone && id === 'hand') { el.style.display = 'none'; continue; }
+    el.style.display = 'flex';
+    _ensureHandChips(el);
+    for (let i = 0; i < RES.length; i++) {
+      const k = RES[i];
+      const span = el.children[i];
+      if (!span) continue;
+      const n = newHand[k];
+      span.textContent = resName(k) + ' ' + n;
+      if (n) span.classList.remove('zero');
+      else span.classList.add('zero');
+      if (gains[k]) {
+        span.classList.remove('gain');
+        // force reflow
+        void span.offsetWidth;
+        span.classList.add('gain');
+      }
     }
   }
   prevHand = newHand;
@@ -2567,8 +2581,6 @@ function sidebarHTML() {
     <h2>資源（現在の手番）</h2>
     <div id="resources"></div>
     <div id="bank" style="font-size:11px;color:#bbb;margin-top:2px;"></div>
-    <h2>凡例</h2>
-    <div id="legend" style="font-size:11px;line-height:1.6;"></div>
     </div>`;
   }
   const monitorBtns = VIEW === 'monitor'
@@ -2578,6 +2590,7 @@ function sidebarHTML() {
     <div id="m-bar" class="m-only">
       <button class="btn" id="btn-togglebar">操作パネルを開く</button>
       <span id="m-bar-status"></span>
+      <div id="hand-mini" class="hand-row hand-mini" style="display:none;"></div>
     </div>
     <div id="sidebar-body">
     <!-- must-answer panels first: on a phone the sheet is short, and these used to sit below the status and buttons, out of sight -->
@@ -2651,8 +2664,6 @@ function sidebarHTML() {
         <div style="margin-top:6px;"><button class="btn" id="btn-pt-propose">提案する</button></div>
       </div>
     </div>
-    <h2>凡例</h2>
-    <div id="legend" style="font-size:11px;line-height:1.6;"></div>
     <h2>発展カード</h2>
     <div id="devcards"></div>
     <h2>ログ</h2>
