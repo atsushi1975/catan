@@ -508,13 +508,184 @@ function dicePlacement() {
 function drawDice() {
   const PLAY_PHASES = ['roll', 'main', 'end'];
   if (!state || !PLAY_PHASES.includes(state.phase)) return;
-  const dice = (state && Array.isArray(state.dice)) ? state.dice : [];
+  const dice = diceOverride || ((state && Array.isArray(state.dice)) ? state.dice : []);
   if (dice.length < 2 || !dice[0] || !dice[1]) return;   // only once rolled
   const p = dicePlacement();
   const x1 = p.x - p.groupW/2 + p.side/2;
   const x2 = x1 + p.side + p.gap;
   drawDie(x1, p.y, p.side, dice[0]);
   drawDie(x2, p.y, p.side, dice[1]);
+}
+
+// ---------------------------------------------------------------------------
+// Sound effects
+//   Synthesised with the Web Audio API (oscillators + one shared noise
+//   buffer), so there are no audio files to download. Everything goes through
+//   playSound(name) / the mute button. Browsers block audio until the page has
+//   seen a user gesture, so the context is created lazily and resumed on the
+//   first tap / key press.
+// ---------------------------------------------------------------------------
+let audioCtx = null;
+let audioMaster = null;
+let noiseBuf = null;
+const SOUND_LAST = {};                  // name -> Date.now() of the last play
+const SOUND_MIN_GAP = {dice: 350, road: 60, settlement: 80, city: 80, devcard: 120};
+let soundMuted = (function () {
+  try { return localStorage.getItem('catan_muted') === '1'; } catch (e) { return false; }
+})();
+
+function ensureAudio() {
+  if (audioCtx) {
+    if (audioCtx.state === 'suspended') audioCtx.resume().catch(function () {});
+    return audioCtx;
+  }
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    audioCtx = new AC();
+    audioMaster = audioCtx.createGain();
+    audioMaster.gain.value = soundMuted ? 0 : 1;
+    audioMaster.connect(audioCtx.destination);
+    // One short burst of white noise, reused by every "noise" sound.
+    const n = Math.max(1, Math.floor(audioCtx.sampleRate * 0.25));
+    noiseBuf = audioCtx.createBuffer(1, n, audioCtx.sampleRate);
+    const d = noiseBuf.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+  } catch (e) {
+    audioCtx = null;
+    audioMaster = null;
+  }
+  return audioCtx;
+}
+
+// Resume the context from the first real user gesture (autoplay policy).
+function unlockAudio() {
+  const c = ensureAudio();
+  if (c && c.state === 'suspended') c.resume().catch(function () {});
+}
+['pointerdown', 'touchstart', 'keydown'].forEach(function (ev) {
+  window.addEventListener(ev, unlockAudio, {passive: true});
+});
+
+function _tone(freq, at, dur, vol, type, glideTo) {
+  const c = audioCtx;
+  if (!c) return;
+  try {
+    const o = c.createOscillator(), g = c.createGain();
+    o.type = type || 'sine';
+    o.frequency.setValueAtTime(freq, at);
+    if (glideTo) o.frequency.exponentialRampToValueAtTime(glideTo, at + dur);
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.linearRampToValueAtTime(vol, at + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+    o.connect(g); g.connect(audioMaster);
+    o.start(at); o.stop(at + dur + 0.03);
+  } catch (e) { /* audio is a nice-to-have, never a crash */ }
+}
+
+function _noise(at, dur, vol, bandHz) {
+  const c = audioCtx;
+  if (!c || !noiseBuf) return;
+  try {
+    const s = c.createBufferSource();
+    s.buffer = noiseBuf;
+    const g = c.createGain();
+    g.gain.setValueAtTime(vol, at);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+    let tail = s;
+    if (bandHz) {
+      const f = c.createBiquadFilter();
+      f.type = 'bandpass';
+      f.frequency.value = bandHz;
+      f.Q.value = 0.9;
+      s.connect(f); tail = f;
+    }
+    tail.connect(g); g.connect(audioMaster);
+    s.start(at); s.stop(at + dur + 0.03);
+  } catch (e) { /* ignore */ }
+}
+
+// Name-based sound entry point: playSound('dice'|'road'|'settlement'|'city'|'devcard').
+//   opts.quiet  - another player's action: play at roughly half volume
+//   opts.seven  - the throw was a 7 (last dice knock lower / darker)
+function playSound(kind, opts) {
+  if (soundMuted) return;                       // mute applies to every sound
+  if (VIEW !== 'client' || READONLY) return;    // the monitor page stays silent
+  _playSoundNow(kind, opts);
+}
+
+// The scheduler half of playSound, shared with the test hook so the same code
+// path can be exercised from the monitor page.
+function _playSoundNow(kind, opts) {
+  const c = ensureAudio();
+  if (!c) return;
+  if (c.state === 'suspended') c.resume().catch(function () {});
+  const now = Date.now();
+  const gap = SOUND_MIN_GAP[kind] || 60;
+  // Same-sound rate limit: a burst of events must not stack into one loud blip.
+  if (SOUND_LAST[kind] && now - SOUND_LAST[kind] < gap) return;
+  SOUND_LAST[kind] = now;
+  const q = (opts && opts.quiet) ? 0.5 : 1;
+  const t = c.currentTime + 0.01;
+  if (kind === 'dice') {
+    const seven = !!(opts && opts.seven);
+    // "カラカラ": four short noise clicks, the gaps tightening. Kept bright
+    // (3-4kHz) and longer than before: on a phone speaker the old 35ms/0.10
+    // bursts were almost inaudible.
+    const clicks = [0, 0.045, 0.09, 0.135];
+    for (let i = 0; i < clicks.length; i++) {
+      _noise(t + clicks[i], 0.06, (0.20 + i * 0.015) * q, 3000 + i * 400);
+    }
+    // a little low body under the rattle so it reads as "dice", not "static"
+    _noise(t + 0.02, 0.20, 0.06 * q, 800);
+    // "コトッ": a bright attack plus a low thud, right when the faces settle
+    _noise(t + 0.275, 0.05, 0.14 * q, 1400);
+    _tone(seven ? 140 : 220, t + 0.28, 0.14, 0.22 * q, 'triangle', seven ? 55 : 105);
+  } else if (kind === 'road') {
+    _noise(t, 0.02, 0.06 * q, 1800);
+    _tone(200, t, 0.10, 0.15 * q, 'triangle', 145);
+  } else if (kind === 'settlement') {
+    _tone(392, t, 0.12, 0.13 * q, 'sine');
+    _tone(523, t + 0.09, 0.14, 0.13 * q, 'sine');
+  } else if (kind === 'city') {
+    _tone(392, t, 0.14, 0.13 * q, 'sine');
+    _tone(523, t + 0.08, 0.14, 0.13 * q, 'sine');
+    _tone(659, t + 0.16, 0.18, 0.14 * q, 'sine');
+  } else if (kind === 'devcard') {
+    _noise(t, 0.12, 0.08 * q, 1600);
+    _tone(880, t + 0.09, 0.11, 0.12 * q, 'sine');
+  }
+}
+
+function syncMuteButton() {
+  const b = document.getElementById('btn-mute');
+  if (!b) return;
+  b.textContent = soundMuted ? '🔇' : '🔊';
+  b.title = soundMuted ? 'サウンドをオンにする' : 'サウンドをオフにする';
+  b.setAttribute('aria-pressed', soundMuted ? 'true' : 'false');
+}
+
+function setMuted(m) {
+  soundMuted = !!m;
+  try { localStorage.setItem('catan_muted', soundMuted ? '1' : '0'); } catch (e) {}
+  if (audioMaster) audioMaster.gain.value = soundMuted ? 0 : 1;
+  syncMuteButton();
+}
+
+// One small fixed button (top-left, away from the dice in the top-right).
+function makeMuteButton() {
+  if (document.getElementById('btn-mute')) { syncMuteButton(); return; }
+  const b = document.createElement('button');
+  b.id = 'btn-mute';
+  b.type = 'button';
+  b.setAttribute('aria-label', 'サウンドのオン・オフ');
+  b.onclick = function () {
+    const wasMuted = soundMuted;
+    setMuted(!soundMuted);
+    if (wasMuted) playSound('road');    // quiet confirmation when turning it on
+  };
+  document.body.appendChild(b);
+  syncMuteButton();
 }
 
 let canvas, ctx;
@@ -529,6 +700,17 @@ let booted = false;
 let READONLY = false;        // monitor mode: view-only, no game actions
 let prevHand = {};
 let prevHandPid = null;
+// Roll animation: while this holds [d1,d2], drawDice() shows those faces
+// instead of state.dice (prevents the real result flashing mid-animation).
+let diceOverride = null;
+let diceAnimTimer = null;
+let lastRollKey = null;       // "turn:d1-d2" of the last throw we reacted to
+let rollBootDone = false;     // first poll after a load only records the dice
+// Hexes lit up by the roll (null when idle).
+let hexGlow = null;           // {cells:[{q,r}], start, dur}
+let hexGlowTimer = null;
+// Board snapshot used to notice OTHER players' building (no server events).
+let pieceSnap = null;
 // The "g | you:..." corner overlay is a debug aid, not player UI.
 // It only appears when the page is opened with ?diag=1.
 const DIAG_ON = (() => {
@@ -589,6 +771,34 @@ function showToast(text, kind, priv, ms) {
     t.classList.remove('show');
     setTimeout(() => { if (t.parentNode) t.parentNode.removeChild(t); }, 400);
   }, ms || 3200);
+}
+
+// Show a toast unless the same text is already on screen (used for the
+// "tap a highlighted spot" hint, which must not stack up on repeated taps).
+function showToastOnce(text, kind, ms) {
+  const host = document.getElementById('toast-host');
+  if (host) {
+    for (const t of host.children) {
+      if (t.textContent === text) return;
+    }
+  }
+  showToast(text, kind, false, ms);
+}
+
+// The server answers failed builds with {"ok": false} (no error text), so the
+// fallback is a plain "you cannot build there". A few server errors are
+// English; map the ones a player can actually hit here.
+const BUILD_ERROR_JA = {
+  'not your turn': 'あなたの手番ではありません',
+  'game not started': 'ゲームが開始されていません',
+  'ゲームが開始されていません': 'ゲームが開始されていません',
+  'この操作は外部からは行えません': '操作できません（接続を確認してください）'
+};
+
+function buildFailText(r) {
+  const e = r && r.error;
+  if (e) return BUILD_ERROR_JA[e] || e;
+  return 'そこには置けません';
 }
 
 // Called on every /state poll. Shows anything new since the last poll.
@@ -937,6 +1147,8 @@ async function getState() {
   if (state.robber_pending && isMyTurn() && !hasPendingDiscards() && pendingRobberHex === null && mode !== 'robber') {
     mode = 'robber';
   }
+  checkNewRoll();            // dice animation / sound / hex highlight
+  checkOtherBuildEvents();   // other players' build sounds (public board diff)
   render();
   updateSidebar();
   updatePanels();
@@ -952,6 +1164,11 @@ async function post(action, extra={}) {
   await getState();   // refresh() sets the setup mode from server truth
   updateModeButtons();
   render();
+  // Own build / purchase feedback only on success. Others' actions are picked
+  // up by the board diff in checkOtherBuildEvents().
+  const OWN_SOUND = {build_road:'road', build_settlement:'settlement',
+                     build_city:'city', buy_dev:'devcard'};
+  if (r && r.ok && OWN_SOUND[action]) playSound(OWN_SOUND[action]);
   return r;
 }
 
@@ -1399,6 +1616,186 @@ function drawSea() {
   ctx.restore();
 }
 
+// ---------------------------------------------------------------------------
+// Dice roll feedback: animation, sound and hex highlight all start here.
+//   Runs once per new throw. Own rolls and other players' rolls both arrive
+//   through the /state poll, so both go through the same path. The first poll
+//   after a page load only records the dice - a reload never replays anything.
+// ---------------------------------------------------------------------------
+const REDUCED_MOTION = (function () {
+  try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; }
+  catch (e) { return false; }
+})();
+
+function checkNewRoll() {
+  if (!state || !state.board) return;
+  const dice = Array.isArray(state.dice) ? state.dice : [];
+  const d1 = dice[0], d2 = dice[1];
+  const turn = (state.turn_number === undefined || state.turn_number === null) ? 0 : state.turn_number;
+  const key = (d1 && d2) ? (turn + ':' + d1 + '-' + d2 + ':' + state.phase) : null;
+  if (!rollBootDone) {
+    // The very first poll is a baseline (even when nobody has rolled yet):
+    // whatever dice are already on the board must not be replayed.
+    rollBootDone = true;
+    lastRollKey = key;
+    return;
+  }
+  if (!key) { lastRollKey = null; return; }   // no throw on the board yet
+  if (key === lastRollKey) return;
+  lastRollKey = key;
+  // end_turn leaves the dice on the board while the next player is still in the
+  // roll phase; that leftover pair is not a throw.
+  if (state.phase === 'roll') return;
+  if (state.phase !== 'main' && state.phase !== 'end') return;
+  onNewRoll(turn, d1 + d2);
+}
+
+function onNewRoll(turn, value) {
+  const d = (state && Array.isArray(state.dice)) ? state.dice : [];
+  if (d.length < 2) return;
+  const total = value || (d[0] + d[1]);
+  // A new throw replaces the previous highlight (never two glows at once).
+  if (hexGlowTimer) { clearInterval(hexGlowTimer); hexGlowTimer = null; }
+  hexGlow = null;
+  const mine = VIEW === 'client' && state.you !== null && state.you !== undefined
+    && state.you === state.current;
+  playSound('dice', {quiet: (VIEW === 'client' && !mine), seven: total === 7});
+
+  // One animation at a time: a state update during the throw must not start a
+  // second shuffle on top of the first.
+  if (diceAnimTimer) { clearTimeout(diceAnimTimer); diceAnimTimer = null; }
+
+  if (REDUCED_MOTION) {
+    diceOverride = null;
+    render();
+    startHexGlow(total);
+    return;
+  }
+  const started = Date.now();
+  const roll6 = function () { return 1 + Math.floor(Math.random() * 6); };
+  diceOverride = [roll6(), roll6()];
+  render();
+  const step = function () {
+    if (Date.now() - started >= 300) {
+      diceAnimTimer = null;
+      diceOverride = null;      // settle on the real faces
+      render();
+      startHexGlow(total);
+      return;
+    }
+    diceOverride = [roll6(), roll6()];
+    render();
+    diceAnimTimer = setTimeout(step, 60);
+  };
+  diceAnimTimer = setTimeout(step, 60);
+}
+
+// Light up every hex with the rolled number (never the robber's hex, never on a
+// 7). About one second of soft pulsing; a new roll cancels the previous glow.
+function startHexGlow(total) {
+  if (total === 7) return;
+  if (!state || !state.board) return;
+  const cells = [];
+  for (const h of state.board.hexes) {
+    if (h.number === total && !h.robber) cells.push({q: h.q, r: h.r});
+  }
+  if (!cells.length) return;
+  if (hexGlowTimer) { clearInterval(hexGlowTimer); hexGlowTimer = null; }
+  const keys = new Set(cells.map(function (c) { return c.q + ',' + c.r; }));
+  hexGlow = {cells: cells, keys: keys, start: Date.now(), dur: 1150};
+  const tick = function () {
+    if (!hexGlow) { clearInterval(hexGlowTimer); hexGlowTimer = null; return; }
+    if (Date.now() - hexGlow.start >= hexGlow.dur) {
+      hexGlow = null;
+      clearInterval(hexGlowTimer);
+      hexGlowTimer = null;
+      render();
+      return;
+    }
+    render();
+  };
+  hexGlowTimer = setInterval(tick, 60);
+  render();
+}
+
+// Brightness of the current highlight, 0..1. Starts at full strength and
+// pulses out over ~1.1s.
+function _hexGlowAlpha() {
+  if (!hexGlow) return 0;
+  const t = Math.max(0, Math.min(1, (Date.now() - hexGlow.start) / hexGlow.dur));
+  const pulse = 0.55 + 0.45 * Math.abs(Math.cos(t * Math.PI * 3));
+  return (1 - t) * pulse;
+}
+
+// Painted right after the terrain, BEFORE the number chip/pieces, so the
+// highlight never washes out the number.
+function _drawHexGlowCell(corners, a) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(corners[0].x, corners[0].y);
+  for (let i = 1; i < 6; i++) ctx.lineTo(corners[i].x, corners[i].y);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(255, 238, 90, ' + (0.42 * a).toFixed(3) + ')';
+  ctx.fill();
+  // outer halo
+  ctx.shadowColor = 'rgba(255, 226, 70, ' + (0.95 * a).toFixed(3) + ')';
+  ctx.shadowBlur = Math.max(10, scale * 0.45);
+  ctx.strokeStyle = 'rgba(255, 246, 140, ' + (0.95 * a).toFixed(3) + ')';
+  ctx.lineWidth = Math.max(4, scale * 0.12);
+  ctx.stroke();
+  // crisp inner edge
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = 'rgba(255, 255, 235, ' + (0.9 * a).toFixed(3) + ')';
+  ctx.lineWidth = Math.max(1.5, scale * 0.035);
+  ctx.stroke();
+  ctx.restore();
+}
+
+// ---------------------------------------------------------------------------
+// Other players' building sounds
+//   The server publishes no build events, so the public board is diffed
+//   instead (road owners, settlements/cities, public dev-card counts). The
+//   first poll just records a baseline; own builds are sounded by post() and
+//   skipped here so they never double up.
+// ---------------------------------------------------------------------------
+function _pieceCounts() {
+  const out = {road: {}, settlement: {}, city: {}, dev: {}};
+  if (!state || !state.board) return out;
+  for (const e of state.board.edges) {
+    if (e.road_owner === null || e.road_owner === undefined) continue;
+    out.road[e.road_owner] = (out.road[e.road_owner] || 0) + 1;
+  }
+  for (const v of state.board.vertices) {
+    if (!v.building) continue;
+    const k = (v.building === 'city') ? 'city' : 'settlement';
+    out[k][v.owner] = (out[k][v.owner] || 0) + 1;
+  }
+  if (Array.isArray(state.players)) {
+    for (const p of state.players) out.dev[p.id] = p.dev_count || 0;
+  }
+  return out;
+}
+
+function checkOtherBuildEvents() {
+  const now = _pieceCounts();
+  if (!pieceSnap) { pieceSnap = now; return; }
+  const prev = pieceSnap;
+  pieceSnap = now;
+  if (VIEW !== 'client' || READONLY) return;
+  const me = (state && state.you !== null && state.you !== undefined) ? state.you : null;
+  const fired = {};
+  const kinds = {road: 'road', settlement: 'settlement', city: 'city', dev: 'devcard'};
+  for (const k of Object.keys(kinds)) {
+    const a = now[k] || {}, b = prev[k] || {};
+    for (const pidStr of Object.keys(a)) {
+      const pid = Number(pidStr);
+      if (pid === me) continue;
+      if ((a[pid] || 0) - (b[pid] || 0) > 0) fired[kinds[k]] = true;
+    }
+  }
+  for (const name of Object.keys(fired)) playSound(name, {quiet: true});
+}
+
 function render() {
   if (!ctx) return;
   ctx.fillStyle = '#1a1a1a';
@@ -1430,6 +1827,11 @@ function render() {
     ctx.strokeStyle = 'rgba(255,255,255,0.6)';
     ctx.lineWidth = 2;
     ctx.stroke();
+    // Roll highlight: under the number chip and any pieces, so they stay crisp.
+    if (hexGlow && hexGlow.keys.has(h.q + ',' + h.r)) {
+      const ga = _hexGlowAlpha();
+      if (ga > 0.01) _drawHexGlowCell(corners, ga);
+    }
     if (h.number) {
       // Beige token, closer to the original cardboard chip (it used to be a
       // white disc, which read as "screen" rather than "piece").
@@ -2296,9 +2698,11 @@ function bindCanvas() {
       }
       if (best !== null && bestd < 0.45) {
         const r = await post('build_road', {edge: best});
-        if (!r.ok) console.error('road fail', r);
+        if (!r.ok) showToast(buildFailText(r), 'warn');
         if (!(state && state.phase === 'setup')) mode = 'none';
         updateModeButtons();
+      } else {
+        showToastOnce('光っている場所をタップしてください', 'info', 1800);
       }
     } else if (mode === 'settle') {
       let best = null, bestd = 1e9;
@@ -2309,9 +2713,11 @@ function bindCanvas() {
       }
       if (best !== null && bestd < 0.45) {
         const r = await post('build_settlement', {vertex: best});
-        if (!r.ok) console.log('settle fail', r);
+        if (!r.ok) showToast(buildFailText(r), 'warn');
         if (!(state && state.phase === 'setup')) mode = 'none';
         updateModeButtons();
+      } else {
+        showToastOnce('光っている場所をタップしてください', 'info', 1800);
       }
     } else if (mode === 'city') {
       let best = null, bestd = 1e9;
@@ -2321,8 +2727,10 @@ function bindCanvas() {
       }
       if (best !== null && bestd < 0.45 && (state.valid.cities||[]).includes(best)) {
         const r = await post('build_city', {vertex: best});
-        if (!r.ok) console.log('city fail', r);
+        if (!r.ok) showToast(buildFailText(r), 'warn');
         mode = 'none'; updateModeButtons();
+      } else {
+        showToastOnce('光っている場所をタップしてください', 'info', 1800);
       }
     }
   });
@@ -2519,6 +2927,7 @@ function boot(opts) {
     ro.observe(document.getElementById('board-wrap'));
   }
   resize();
+  if (VIEW === 'client' && !READONLY) makeMuteButton();
   getState();
   setInterval(getState, 2000);
   setInterval(renderExitBanner, 1000);     // the countdown in the exit banner
@@ -2572,5 +2981,16 @@ window.CatanGame = {
   _debugSetBar: (open, manual) => setBar(open, manual),
   _debugAutoOpenBar: () => autoOpenBar(),
   _debugBarState: () => ({ opened: barOpened(), reason: barAutoReason, suppressed: barSuppressed, held: barHeld }),
+  // test hooks: roll feedback + sound (synthesised, so nothing to fetch)
+  _debugRollFeedback: (turn, value) => onNewRoll(turn, value),
+  _debugRollKey: () => lastRollKey,
+  _debugDiceOverride: () => (diceOverride ? diceOverride.slice() : null),
+  _debugGlow: () => (hexGlow ? {cells: hexGlow.cells, age: Date.now() - hexGlow.start} : null),
+  _debugSound: (kind, opts) => playSound(kind, opts),
+  _debugSoundUnchecked: (kind, opts) => _playSoundNow(kind, opts),
+  _debugAudio: () => ({muted: soundMuted, ctx: !!audioCtx,
+                       state: audioCtx ? audioCtx.state : null}),
+  _debugSetMuted: (m) => setMuted(m),
+  _debugPieceSnap: () => pieceSnap,
 };
 })();
