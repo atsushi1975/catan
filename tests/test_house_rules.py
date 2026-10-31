@@ -140,6 +140,28 @@ check(g.victory_target == 10, "board uses chosen victory")
 
 handle_lobby("room_reset", {})
 
+# The desert rule must be chosen BEFORE the dice: a roll without it is refused,
+# so the desert can never change (and wipe the rolls) after somebody rolled.
+handle_lobby("join", {"name": "a"})
+handle_lobby("join", {"name": "b"})
+seats = ROOM["seats"]
+toks = [s["token"] for s in seats]
+res = handle_lobby("room_roll", {"token": toks[0]})
+check(res and res.get("ok") is False, "rolling before the desert rule is refused")
+check(res.get("error") == "先に初期砂漠のハウスルールを指定してください",
+      "the refusal says to choose the desert rule first")
+check(seats[0].get("roll") is None, "a refused roll stores nothing")
+r = serialize_room()
+check((r.get("rules_fixed") or {}).get("desert") is False, "a refused roll does not lock the desert rule")
+
+# once the desert rule is chosen the dice work as usual
+handle_lobby("room_setting", {"token": toks[0], "key": "desert", "value": "center"})
+res = handle_lobby("room_roll", {"token": toks[0]})
+check(res and res.get("ok"), "can roll once the desert rule is chosen")
+check(seats[0].get("roll") is not None, "the roll is stored")
+
+handle_lobby("room_reset", {})
+
 print()
 print("HOUSE RULES TEST OK" if fails == 0 else "HOUSE RULES TEST FAILED (%d)" % fails)
 sys.exit(0 if fails == 0 else 1)

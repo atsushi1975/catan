@@ -651,6 +651,14 @@ def handle_lobby(action, payload, local=True):
                 return {"ok": False, "error": "not joined"}
             if ROOM["phase"] != "lobby":
                 return {"ok": False}
+            # The desert rule changes the map and clears every roll, so it has
+            # to be settled BEFORE the dice. Rolling first used to mean "roll
+            # again after choosing the desert"; refusing here removes that
+            # path entirely.
+            fixed = ROOM.setdefault("rules_fixed", {"desert": False, "numbers": False, "victory": False})
+            if not fixed.get("desert"):
+                return {"ok": False,
+                        "error": "先に初期砂漠のハウスルールを指定してください"}
             import random
             d = [random.randint(1, 6), random.randint(1, 6)]
             ROOM["seats"][seat]["roll"] = d
