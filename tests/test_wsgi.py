@@ -63,6 +63,14 @@ check(s == "404 Not Found", "unknown path -> 404")
 s, h, b = call("GET", "/../server.py")
 check(s == "404 Not Found", "path traversal blocked")
 
+# --- health check ------------------------------------------------------------
+s, h, b = call("GET", "/health")
+check(s == "200 OK", "GET /health -> 200")
+hj = json.loads(b)
+check(set(hj) == {"title", "version", "status"}, "GET /health body keys are exactly title/version/status")
+check(hj.get("status") == "idle", "GET /health status is idle on a fresh room")
+check("application/json" in h["Content-Type"], "GET /health content-type is json")
+
 # --- /env debug gate --------------------------------------------------------
 s, j = get_json("/env", ip="127.0.0.1")
 check(j["debug_allowed"] is True, "/env from loopback allows debug")

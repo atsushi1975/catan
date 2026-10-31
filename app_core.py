@@ -116,6 +116,10 @@ LOCK = threading.RLock()
 #   problem is visible instead of mysterious. Run with a single worker.
 # ---------------------------------------------------------------------------
 OWNER_PID = os.getpid()
+START_TIME = time.time()   # process start; reported by /health (uptime etc.)
+
+APP_ROOT = os.path.dirname(os.path.abspath(__file__))   # project root (catan/)
+WEB_DIR = os.path.join(APP_ROOT, "web")
 
 
 def reset_room():
@@ -171,6 +175,56 @@ def _resolve_viewer(token, client_ip, view=None):
 
 def game():
     return ROOM.get("g")
+
+
+# ---------------------------------------------------------------------------
+# Health check (GET /health) - the ONLY thing this API answers
+#   {"title": "カタン", "version": "<str>", "status": "idle|waiting|playing"}
+#   * No auth, no tokens, no hands/player names/board info - just liveness.
+#   * status: "playing" (game running) / "waiting" (lobby with >=1 seated,
+#     game not started yet) / "idle" (started, no one around).
+#   * Anything unexpected degrades to "idle" instead of erroring.
+# ---------------------------------------------------------------------------
+HEALTH_TITLE = "カタン"
+HEALTH_VERSION_CACHE = None
+
+
+def _health_status():
+    """idle | waiting | playing. Call with LOCK held (see route_get /health)."""
+    try:
+        with LOCK:
+            _housekeeping(None)
+            phase = ROOM.get("phase")
+            seats = len(ROOM.get("seats") or [])
+    except Exception:
+        return "idle"        # never fail the health check with a 500
+    if phase == "playing":
+        return "playing"
+    if phase == "lobby" and seats >= 1:
+        return "waiting"
+    return "idle"
+
+
+def _health_version():
+    """VERSION file content at the project root (stripped); 'dev' when missing."""
+    global HEALTH_VERSION_CACHE
+    if HEALTH_VERSION_CACHE is None:
+        try:
+            with open(os.path.join(APP_ROOT, "VERSION"), "r", encoding="utf-8") as f:
+                v = f.read().strip()
+            HEALTH_VERSION_CACHE = v if v else "dev"
+        except OSError:
+            HEALTH_VERSION_CACHE = "dev"
+    return HEALTH_VERSION_CACHE
+
+
+def health_payload():
+    """The /health JSON body (dict with exactly title / version / status)."""
+    return {
+        "title": HEALTH_TITLE,
+        "version": _health_version(),
+        "status": _health_status(),
+    }
 
 
 def _pick_queue():
@@ -1148,6 +1202,17 @@ def route_get(path, query, client_ip):
         return _file_response(path.lstrip('/'))
     if path.lstrip('/') in ICON_FILES:
         return _file_response(path.lstrip('/'))
+
+    if path == '/health':
+        # Common health check (Docker / orchestrators / humans). No auth, no
+        # state mutation beyond the lazy idle reset, tiny JSON body only.
+        status = _health_status()
+        body = json.dumps({
+            'title': HEALTH_TITLE,
+            'version': _health_version(),
+            'status': status,
+        }, ensure_ascii=False).encode()   # keep the Japanese readable in the body
+        return (200, 'application/json; charset=utf-8', body)
 
     if path == '/room':
         with LOCK:
