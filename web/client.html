@@ -50,7 +50,7 @@
   #lobby .color-btn.on { border-color: #4caf50; box-shadow: 0 0 0 1px #4caf50; }
   #lobby .color-btn:disabled { opacity: .45; cursor: not-allowed; }
   /* 共通ロビーへ戻るリンク。他のロビーのボタン(.color-btn)と同じ見た目。
-     設定(CATAN_LOBBY_URL)が無いときは JS が表示しない。 */
+     JS が設定または同一ホストからURLを決めて表示する。 */
   #lobby .back-lobby { display: none; align-items: center; gap: 4px;
     margin: 0 0 10px; padding: 5px 10px; border-radius: 6px;
     border: 1px solid #555; background: #202020; color: #eee;
@@ -105,23 +105,51 @@
 <script>
 (function () {
   // ---- common lobby link ---------------------------------------------------
-  // 共通ロビー(game-lobby)のURLはサーバーの設定(CATAN_LOBBY_URL)から受け取る。
-  // コードに直書きしないので、VPS 移行時も設定値だけで済む。
-  // 未設定ならボタンは出さない（href="#" のまま表示しない）。
+  // 共通ロビー(game-lobby)のURLは、設定(CATAN_LOBBY_URL)があればそれを使う。
+  // 未設定なら「ブラウザから見た同じホストの /」を使う。~/docker の lobby は
+  // 80:8080 で動いているため、LAN / Tailscale / VPS のどのアドレスで開いても
+  // そのアドレスのロビーに戻れる。アドレスはコードに直書きしない。
   (async function initLobbyLink() {
+    const a = document.getElementById('link-lobby');
+    if (!a) return;
+    let configured = '';
     try {
       const env = await fetch('/env').then(function (r) { return r.json(); });
-      const url = (env && typeof env.lobby_url === 'string') ? env.lobby_url.trim() : '';
-      // サーバー側でも検証しているが、念のためブラウザ側でも確認する。
-      if (!/^https?:\/\//i.test(url) && !(url.charAt(0) === '/' && url.charAt(1) !== '/')) return;
-      const a = document.getElementById('link-lobby');
-      if (!a) return;
-      a.href = url;
-      a.style.display = 'inline-flex';
+      configured = (env && typeof env.lobby_url === 'string') ? env.lobby_url.trim() : '';
     } catch (e) {
-      // 取得できなければボタンを出さない（ゲームには影響させない）。
+      // 取得できなくても同じホストで代用する。
     }
+    const url = lobbyUrl(configured);
+    if (!url) return;
+    a.href = url;
+    a.style.display = 'inline-flex';
   })();
+
+  function sameHostLobbyUrl() {
+    if (location.protocol !== 'http:' && location.protocol !== 'https:') return '';
+    return location.protocol + '//' + location.hostname + '/';
+  }
+
+  function safeLobbyUrl(url) {
+    if (/^https?:\/\//i.test(url)) return url;
+    if (url.charAt(0) === '/' && url.charAt(1) !== '/') return url;
+    return '';
+  }
+
+  function lobbyUrl(configured) {
+    const safe = safeLobbyUrl(configured);
+    if (!safe) return sameHostLobbyUrl();
+    try {
+      const u = new URL(safe, location.href);
+      // 旧設定の http://localhost/ が残っていても、リモートから開いたときに
+      // その端末自身へ飛ばないよう、ブラウザから見たホストに置き換える。
+      const local = /^(localhost|127\.0\.0\.1|\[::1\]|::1)$/i;
+      if (local.test(u.hostname) && !local.test(location.hostname)) return sameHostLobbyUrl();
+      return u.href;
+    } catch (e) {
+      return sameHostLobbyUrl();
+    }
+  }
 
   // ---- token storage -------------------------------------------------------
   // Phones discard backgrounded tabs after a long idle. When that happens the
