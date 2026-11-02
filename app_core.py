@@ -48,6 +48,21 @@ def _debug_allowed(ip):
     """True only for the configured (default: local) addresses."""
     return any(_ip_in_cidr(ip, c) for c in _debug_cidrs())
 
+
+def _lobby_url():
+    """共通ロビー(game-lobby)の公開URL。未設定なら空文字。
+
+    コードに直書きせず、環境変数 CATAN_LOBBY_URL から読む（VPS 移行時に
+    コードを変えずに済むようにするため）。ブラウザへそのまま渡す値なので、
+    http(s):// か / で始まるものだけを許可し、//host 形式は拒否する。
+    """
+    raw = os.environ.get("CATAN_LOBBY_URL", "").strip()
+    if raw.startswith("//"):
+        return ""
+    if raw.startswith(("http://", "https://", "/")):
+        return raw
+    return ""
+
 # ---------------------------------------------------------------------------
 # Room / lobby state
 #   seats:  [{"token","name","roll": [d1,d2] or None}, ...]  (join order)
@@ -1229,6 +1244,7 @@ def route_get(path, query, client_ip):
         return (200, 'application/json; charset=utf-8', body)
     if path == '/env':
         body = json.dumps({'debug_allowed': _debug_allowed(client_ip),
+                           'lobby_url': _lobby_url(),
                            'pid': os.getpid(),
                            'owner_pid': OWNER_PID}).encode()
         return (200, 'application/json; charset=utf-8', body)

@@ -82,6 +82,23 @@ check(j["debug_allowed"] is False, "/env uses X-Forwarded-For (remote) ")
 s, j = get_json("/env", ip="127.0.0.1", headers={"HTTP_X_FORWARDED_FOR": "127.0.0.1"})
 check(j["debug_allowed"] is True, "/env uses X-Forwarded-For (local)")
 
+# --- common lobby link config ----------------------------------------------
+os.environ["CATAN_LOBBY_URL"] = "https://lobby.example/"
+s, j = get_json("/env")
+check(j.get("lobby_url") == "https://lobby.example/", "/env exposes CATAN_LOBBY_URL")
+os.environ["CATAN_LOBBY_URL"] = "/lobby/"
+s, j = get_json("/env")
+check(j.get("lobby_url") == "/lobby/", "/env allows a root-relative lobby_url")
+os.environ["CATAN_LOBBY_URL"] = "javascript:alert(1)"
+s, j = get_json("/env")
+check(j.get("lobby_url") == "", "/env rejects a non-http lobby_url")
+os.environ["CATAN_LOBBY_URL"] = "//evil.example/"
+s, j = get_json("/env")
+check(j.get("lobby_url") == "", "/env rejects a protocol-relative lobby_url")
+os.environ.pop("CATAN_LOBBY_URL", None)
+s, j = get_json("/env")
+check(j.get("lobby_url") == "", "/env lobby_url is empty when unset")
+
 # --- room reset + lobby -----------------------------------------------------
 r = post_json({"action": "room_reset"})
 check(r.get("ok") is True, "room_reset ok")
