@@ -2397,12 +2397,9 @@ function updateTradeUI(me) {
   }
   const g = give.value || 'wood';
   const ratio = (state.trade_ratios && state.trade_ratios[g]) || 4;
-  const have = (me && me.resources) ? (me.resources[g] || 0) : 0;
-  // The text is split into two spans so the "（所持 …）" part can be hidden on
-  // phones (the hand row is always visible in the m-bar there). PC keeps the
-  // exact same text: "<ratio>:1（所持 N <res>）".
-  document.getElementById('trade-ratio').innerHTML =
-    `<span>${ratio}:1</span><span class="trade-possess">（所持 ${have} ${resName(g)}）</span>`;
+  const currentPossess = (me && me.resources) ? (me.resources[g] || 0) : 0;
+  const ratioEl = document.getElementById('trade-ratio');
+  ratioEl.innerHTML = `<span class="trade-badge r${ratio}" title="交換レート ${ratio}:1">${ratio}:1</span><span class="trade-possess">（所持 ${currentPossess} 資源）</span>`;
 }
 
 // Monopoly / Year of Plenty: pick the resource(s) from a dropdown instead of
