@@ -190,9 +190,11 @@ button.qty-step {
 
   /* Player trade UI: 3 columns on mobile - give | resource name | want.
      The resource name is shown once, in the middle column. */
-  #pt-builder .pt-cols { display: grid; grid-template-columns: minmax(0, 1fr) 40px minmax(0, 1fr); gap: 6px; align-items: stretch; }
+  #pt-builder .pt-cols { display: grid; grid-template-columns: max-content 40px max-content; justify-content: center; gap: 6px; align-items: stretch; }
   #pt-builder .pt-mid { display: block; padding-top: 9px; }
-  #pt-builder .pt-head { height: 26px; display: flex; align-items: center; justify-content: center; margin-bottom: 2px; box-sizing: border-box; font-size: 12px; font-weight: bold; border-bottom: 1px solid #33333b; }
+  /* width:0 + min-width:100% keeps the heading from setting the card width, so
+     both cards are sized only by their "- qty +" rows and come out equal. */
+  #pt-builder .pt-head { height: 26px; display: flex; align-items: center; justify-content: center; margin-bottom: 2px; box-sizing: border-box; font-size: 12px; font-weight: bold; border-bottom: 1px solid #33333b; width: 0; min-width: 100%; white-space: nowrap; }
   #pt-builder .pt-mid .pt-head { border-bottom-color: transparent; }
   #pt-builder .pt-head-l { display: none; }
   #pt-builder .pt-head-s { display: inline; }
@@ -214,17 +216,16 @@ button.qty-step {
   #pt-builder #pt-give .pt-row, #pt-builder #pt-want .pt-row {
     display: flex !important; height: 36px !important; margin: 0 !important;
     align-items: center !important;
-    border-bottom: 1px solid #33333b; box-sizing: border-box; padding: 0 2px;
+    border-bottom: 1px solid #33333b; box-sizing: border-box; padding: 0;
+    justify-content: center !important;
   }
-  #pt-builder #pt-give .pt-row { justify-content: flex-end !important; }
-  #pt-builder #pt-want .pt-row { justify-content: flex-start !important; }
   #pt-builder .pt-mid-row {
     height: 36px; display: flex; align-items: center; justify-content: center;
     border-bottom: 1px solid #33333b; box-sizing: border-box;
   }
   #pt-builder .pt-mid-row .hand-chip { flex: none; width: 38px; padding: 4px 0; font-size: 11px; }
 
-  .qty-val { display: inline-block; min-width: 14px; text-align: center; font-size: 13px; font-weight: bold; color: #eee; }
+  .qty-val { display: inline-block; min-width: 2ch; text-align: center; font-size: 13px; font-weight: bold; color: #eee; }
   .pt-ctrl { gap: 2px !important; }
 }
 /* ---------------------------------------------------------------------------
