@@ -2301,8 +2301,9 @@ function stepQtyByDir(inp, dir) {
 function buildPtBuilder(me) {
   const g = document.getElementById('pt-give');
   const w = document.getElementById('pt-want');
+  const mid = document.getElementById('pt-mid');
   if (!g.dataset.built) {
-    g.innerHTML = ''; w.innerHTML = '';
+    g.innerHTML = ''; w.innerHTML = ''; mid.innerHTML = '';
     const mkRow = (host, which, k) => {
       const row = document.createElement('label');
       row.className = 'pt-row';
@@ -2344,7 +2345,20 @@ function buildPtBuilder(me) {
       host.appendChild(row);
       syncQtyLabel(inp);
     };
-    for (const k of RES) { mkRow(g, 'give', k); mkRow(w, 'want', k); }
+    const mkMidRow = (k) => {
+      const row = document.createElement('div');
+      row.className = 'pt-mid-row';
+      const terr = HAND_TERRAIN[k];
+      const bg = TERRAIN_COLOR[terr] || '#444';
+      const fg = HAND_TEXT[k] || '#eee';
+      row.innerHTML = `<div class="hand-chip" style="background:${bg};color:${fg};">${resName(k)}</div>`;
+      mid.appendChild(row);
+    };
+    for (const k of RES) {
+      mkRow(g, 'give', k);
+      mkMidRow(k);
+      mkRow(w, 'want', k);
+    }
     g.dataset.built = '1';
   }
   const myres = (me && me.resources) ? me.resources : {};
@@ -2768,12 +2782,16 @@ function sidebarHTML() {
       <div id="pt-active" style="display:none;"></div>
       <div id="pt-builder">
         <div class="pt-cols">
-          <div class="pt-col">
-            <div class="pt-head"><span class="pt-head-l">渡す（自分 &rarr; 相手）</span><span class="pt-head-s">渡す &rarr;</span></div>
+          <div class="pt-col pt-col-give">
+            <div class="pt-head"><span class="pt-head-l">渡す（自分 &rarr; 相手）</span><span class="pt-head-s">渡す</span></div>
             <div id="pt-give"></div>
           </div>
-          <div class="pt-col">
-            <div class="pt-head"><span class="pt-head-l">ほしい（相手 &rarr; 自分）</span><span class="pt-head-s">&larr; ほしい</span></div>
+          <div class="pt-col pt-mid">
+            <div class="pt-head"></div>
+            <div id="pt-mid"></div>
+          </div>
+          <div class="pt-col pt-col-want">
+            <div class="pt-head"><span class="pt-head-l">ほしい（相手 &rarr; 自分）</span><span class="pt-head-s">ほしい</span></div>
             <div id="pt-want"></div>
           </div>
         </div>
@@ -2800,6 +2818,9 @@ function bindCanvas() {
     const sy = rect.height ? canvas.height / rect.height : 1;
     const cx = (ev.clientX - rect.left) * sx, cy = (ev.clientY - rect.top) * sy;
     const wx = (cx - canvas.width/2) / scale, wy = (cy - canvas.height/2) / scale;
+    // On a small board one world unit is only a few CSS px, so keep at least
+    // 16 CSS px of tap radius (capped at half the spacing between two corners).
+    const tapR = Math.min(0.5, Math.max(0.45, 16 / (scale / sx)));
     if (mode === 'robber') {
       let best = null, bestd = 1e9;
       for (const h of state.board.hexes) {
@@ -2825,7 +2846,7 @@ function bindCanvas() {
         const d = pointToSegDist(wx,wy,p0,p1);
         if (d < bestd) { bestd = d; best = ei; }
       }
-      if (best !== null && bestd < 0.45) {
+      if (best !== null && bestd < tapR) {
         const r = await post('build_road', {edge: best});
         if (!r.ok) showToast(buildFailText(r), 'warn');
         if (!(state && state.phase === 'setup')) mode = 'none';
@@ -2840,7 +2861,7 @@ function bindCanvas() {
         const d = Math.hypot(wx - v.x, wy - v.y);
         if (d < bestd) { bestd = d; best = vi; }
       }
-      if (best !== null && bestd < 0.45) {
+      if (best !== null && bestd < tapR) {
         const r = await post('build_settlement', {vertex: best});
         if (!r.ok) showToast(buildFailText(r), 'warn');
         if (!(state && state.phase === 'setup')) mode = 'none';
@@ -2854,7 +2875,7 @@ function bindCanvas() {
         const d = Math.hypot(wx - v.x, wy - v.y);
         if (d < bestd) { bestd = d; best = v.i; }
       }
-      if (best !== null && bestd < 0.45 && (state.valid.cities||[]).includes(best)) {
+      if (best !== null && bestd < tapR && (state.valid.cities||[]).includes(best)) {
         const r = await post('build_city', {vertex: best});
         if (!r.ok) showToast(buildFailText(r), 'warn');
         mode = 'none'; updateModeButtons();
