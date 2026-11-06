@@ -1,0 +1,23 @@
+name: Deploy to Sakura VPS
+
+on:
+  push:
+    branches:
+      - main  # mainブランチにプッシュされたら連動
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH and Remote Command Execution
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22
+          script: |
+            cd ~/docker
+            # 2（git pull）を飛ばして、直接ビルド・コンテナの入れ替えだけ行う
+            docker compose up -d --build catan001
+
