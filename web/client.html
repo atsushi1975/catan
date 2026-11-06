@@ -466,6 +466,21 @@
     };
   }
 
+  // ---- initial player name from the URL (?name=...) -------------------------
+  // Applied once as the lobby name field default (first render only). The URL
+  // param is consumed immediately (history.replaceState) so it never lingers.
+  // Later re-renders restore what the player typed (prevName), so the URL value
+  // is never overwritten after the first render.
+  const urlNameRaw = (() => { try { return new URLSearchParams(location.search).get('name'); } catch (e) { return null; } })();
+  const URL_NAME = (urlNameRaw || '').trim().slice(0, 24);
+  if (urlNameRaw !== null) {
+    try {
+      const u = new URL(location.href);
+      u.searchParams.delete('name');
+      history.replaceState(null, '', u.pathname + u.search + u.hash);
+    } catch (e) {}
+  }
+
   async function renderLobby() {
     let r = await room();
     // A failed poll (network hiccup right after a wake-up) must not be read as
@@ -510,6 +525,10 @@
     const oldInput = document.getElementById('name-input');
     const prevName = oldInput ? oldInput.value : '';
     const wasFocused = oldInput && document.activeElement === oldInput;
+    // The ?name= URL value is the initial default: it applies to the first
+    // render only and never overrides what the player typed afterwards.
+    const firstRender = body.dataset.built !== '1';
+    const baseName = firstRender ? URL_NAME : prevName;
 
     let html = '';
 
@@ -637,7 +656,7 @@
 
     html += '<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">';
     if (!mySeat) {
-      html += `<input type="text" id="name-input" placeholder="名前" maxlength="24">
+      html += `<input type="text" id="name-input" placeholder="名前" maxlength="24" value="${esc(baseName)}">
         <button class="btn" id="btn-join">入室</button>`;
     } else {
       html += `<button class="btn" id="btn-roll-room" ${mySeat.roll ? 'disabled' : ''}>サイコロを振る</button>
@@ -677,7 +696,9 @@
 
     if (!mySeat) {
       const inp = document.getElementById('name-input');
-      if (inp) { inp.value = prevName; if (wasFocused) inp.focus(); }
+      // First render: baseName is the ?name= URL default (or ''). Later renders:
+      // baseName is prevName (what the player typed), so the typed value survives.
+      if (inp) { inp.value = baseName; if (wasFocused) inp.focus(); }
       document.getElementById('btn-join').onclick = async () => {
         const name = (document.getElementById('name-input').value || '').trim() || null;
         const res = await act('join', { name });

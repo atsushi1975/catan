@@ -10,6 +10,16 @@ h2 { margin: 8px 0; font-size: 16px; }
 .btn:hover { background: #666; }
 .btn.active { background: #2a7; }
 .btn:disabled { background: #2a2a2a; color: #666; cursor: not-allowed; }
+/* − / + quantity steppers (player trade give/want, 7's discard). Generous
+   tap target (40px+). Hidden on PC widths: the PC sidebar already lays all the
+   details out and must not change. */
+button.qty-step {
+  min-width: 40px; min-height: 40px; padding: 0; margin: 0;
+  font-size: 18px; line-height: 1.2;
+  background: #444; color: #eee; border: 1px solid #555; border-radius: 6px;
+  cursor: pointer; font-family: inherit;
+}
+@media (min-width: 861px) { button.qty-step { display: none; } }
 .panel { background: #2c2c34; border: 1px solid #7a7a8a; border-radius: 6px; padding: 8px; margin: 8px 0; }
 .panel h2 { margin-top: 0; }
 .panel select { background: #1a1a1a; color: #eee; border: 1px solid #555; border-radius: 4px; }
@@ -103,8 +113,11 @@ h2 { margin: 8px 0; font-size: 16px; }
        the bar pinned to the top of the scroll container so "盤面を広く見る" can
        always be tapped even after the panel is scrolled down. */
     position: sticky; top: 0; z-index: 5; }
-  #m-bar .btn { margin: 0; padding: 10px 12px; }
-  #m-bar-status { font-size: 12px; color: #bbb; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  /* roll / end-turn action pair: one tappable group, wraps as a unit */
+  #m-bar .m-actions { display: flex; align-items: center; gap: 8px; }
+  #m-bar .btn { margin: 0; padding: 10px 12px; min-height: 40px;
+    display: inline-flex; align-items: center; justify-content: center; }
+  #m-bar-status { font-size: 12px; color: #bbb; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
   /* Compact hand on the second line of the sticky bar: always visible, even
      with the sheet closed or scrolled. Same .gain blink as the sheet row. */
   .hand-mini { flex: 1 0 100%; gap: 2px; margin: 4px 0 0; height: 28px; }
@@ -118,13 +131,13 @@ h2 { margin: 8px 0; font-size: 16px; }
   .m-note { display: block; font-size: 12px; color: #8cf; margin: 6px 0; }
   .btn { padding: 10px 12px; }                 /* comfortable tap targets */
   .panel { padding: 10px; }
-  /* long forms are collapsed: the essentials stay one tap away */
-  body:not(.show-all) .m-fold { display: none; }
-  #toggle-all { display: inline-block; margin: 4px 2px; padding: 6px 10px;
-    background: #333; color: #bbb; border: 1px solid #555; border-radius: 4px;
-    font-size: 12px; font-family: inherit; cursor: pointer; }
+  /* The roll / end-turn buttons moved into the always-visible #m-bar, so the
+     sheet no longer renders its own copies: hide them to avoid double buttons. */
+  #sidebar-body #btn-roll, #sidebar-body #btn-end { display: none; }
+  /* long forms are expanded by default on a phone: the action sheet shows all
+     details as soon as it is opened (the "#toggle-all" toggle is gone). */
+  .m-fold { display: block; }
 }
-
 /* ---------------------------------------------------------------------------
    Event log (bottom of the action panel) + toasts (centre of the screen)
    --------------------------------------------------------------------------- */

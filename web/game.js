@@ -2266,27 +2266,62 @@ function updatePlayerTradeUI(me) {
   }
 }
 
+// − / + quantity stepper (player trade give/want + 7's discard).
+// The number <input> keeps the authoritative value (read back by
+// #btn-pt-propose / #btn-discard through parseInt), so the buttons and the
+// existing read paths share one source of truth and never double-manage state.
+function stepQtyByDir(inp, dir) {
+  const cur = parseInt(inp.value || '0') || 0;
+  if (dir === '-') { inp.value = String(Math.max(0, cur - 1)); return; }
+  const maxRaw = (inp.getAttribute) ? (inp.getAttribute('max') || '') : '';
+  const max = (maxRaw !== '' && !isNaN(parseInt(maxRaw))) ? parseInt(maxRaw) : Infinity;
+  const next = (isFinite(max) ? Math.min(cur + 1, max) : cur + 1);
+  inp.value = String(Math.max(0, next));
+}
+
 function buildPtBuilder(me) {
   const g = document.getElementById('pt-give');
   const w = document.getElementById('pt-want');
   if (!g.dataset.built) {
     g.innerHTML = ''; w.innerHTML = '';
-    for (const k of RES) {
+    const mkRow = (host, which, k) => {
       const row = document.createElement('label');
       row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;font-size:12px;margin:2px 0;';
-      row.innerHTML = `<span>${resName(k)} <span class="pt-have" data-k="${k}"></span></span>
-        <input type="number" min="0" value="0" data-pt="give" data-k="${k}" style="width:56px;padding:2px;background:#1a1a1a;color:#eee;border:1px solid #555;border-radius:4px;">`;
-      g.appendChild(row);
-      const row2 = document.createElement('label');
-      row2.style.cssText = 'display:flex;justify-content:space-between;align-items:center;font-size:12px;margin:2px 0;';
-      row2.innerHTML = `<span>${resName(k)}</span>
-        <input type="number" min="0" value="0" data-pt="want" data-k="${k}" style="width:56px;padding:2px;background:#1a1a1a;color:#eee;border:1px solid #555;border-radius:4px;">`;
-      w.appendChild(row2);
-    }
+      const left = document.createElement('span');
+      left.innerHTML = which === 'give'
+        ? `${resName(k)} <span class="pt-have" data-k="${k}"></span>`
+        : resName(k);
+      const ctrl = document.createElement('span');
+      ctrl.style.cssText = 'display:flex;align-items:center;gap:4px;';
+      const inp = document.createElement('input');
+      inp.type = 'number'; inp.min = '0'; inp.value = '0';
+      inp.dataset.pt = which; inp.dataset.k = k;
+      inp.style.cssText = 'width:56px;padding:2px;background:#1a1a1a;color:#eee;border:1px solid #555;border-radius:4px;';
+      const mkBtn = (dir) => {
+        const b = document.createElement('button');
+        b.type = 'button'; b.className = 'qty-step';
+        b.dataset.pt = which; b.dataset.k = k; b.dataset.dir = dir;
+        b.textContent = (dir === '+' ? '+' : '−');
+        b.onclick = () => stepQtyByDir(inp, dir);
+        ctrl.appendChild(b);
+        return b;
+      };
+      ctrl.appendChild(inp);
+      ctrl.appendChild(mkBtn('-'));
+      ctrl.appendChild(mkBtn('+'));
+      row.appendChild(left);
+      row.appendChild(ctrl);
+      host.appendChild(row);
+    };
+    for (const k of RES) { mkRow(g, 'give', k); mkRow(w, 'want', k); }
     g.dataset.built = '1';
   }
   const myres = (me && me.resources) ? me.resources : {};
-  g.querySelectorAll('input[data-pt="give"]').forEach(inp => { inp.max = myres[inp.dataset.k] || 0; });
+  g.querySelectorAll('input[data-pt="give"]').forEach(inp => {
+    inp.max = myres[inp.dataset.k] || 0;
+    const v = parseInt(inp.value || '0') || 0;
+    if (v > (inp.max || 0)) inp.value = String(inp.max || 0);   // max shrank: clamp
+  });
   g.querySelectorAll('.pt-have').forEach(s => { s.textContent = '（所持 ' + (myres[s.dataset.k] || 0) + '）'; });
   const t = document.getElementById('pt-targets');
   const checked = new Set([...t.querySelectorAll('input:checked')].map(i => i.value));
@@ -2365,7 +2400,10 @@ function updateDevParams() {
 
 function updateActionAvailability() {
   const blocked = hasPendingDiscards() || (state && state.robber_pending) || !isMyTurn();
-  for (const id of ['btn-roll','btn-end','btn-buydev','btn-trade','btn-pt-propose']) {
+  // btn-roll / btn-end exist twice on a phone: the sheet copy (#sidebar-body) is
+  // hidden by CSS and the always-visible copy lives in #m-bar (#btn-roll-m /
+  // #btn-end-m). Both carry the SAME ids-in-list treatment so the state is shared.
+  for (const id of ['btn-roll','btn-end','btn-roll-m','btn-end-m','btn-buydev','btn-trade','btn-pt-propose']) {
     const el = document.getElementById(id);
     if (el) el.disabled = !!blocked;
   }
@@ -2511,11 +2549,19 @@ function updatePanels() {
         const have = res[k] || 0;
         const row = document.createElement('div');
         row.className = 'discard-row';
-        row.innerHTML = `<label style="display:flex;align-items:center;justify-content:space-between;font-size:13px;margin:2px 0;">
+        row.innerHTML = `<label style="display:flex;align-items:center;justify-content:space-between;font-size:13px;margin:2px 0;gap:4px;">
           <span>${resName(k)}（所持 ${have}）</span>
-          <input type="number" min="0" max="${have}" value="0" data-res="${k}" style="width:64px;padding:2px;">
+          <span style="display:flex;align-items:center;gap:4px;">
+            <input type="number" min="0" max="${have}" value="0" data-res="${k}" style="width:64px;padding:2px;background:#1a1a1a;color:#eee;border:1px solid #555;border-radius:4px;">
+            <button type="button" class="qty-step" data-res="${k}" data-dir="-">−</button>
+            <button type="button" class="qty-step" data-res="${k}" data-dir="+">＋</button>
+          </span>
         </label>`;
         box.appendChild(row);
+        const qBtns = row.querySelectorAll('button.qty-step');
+        for (const b of qBtns) {
+          b.onclick = () => { const inp = b.parentElement ? b.parentElement.querySelector('input') : null; if (inp) stepQtyByDir(inp, b.dataset.dir); };
+        }
       }
     }
   } else {
@@ -2611,6 +2657,10 @@ function sidebarHTML() {
       <button class="btn" id="btn-togglebar">操作パネルを開く</button>
       <div class="victory-badge v-scope-m" style="display:none;"></div>
       <span id="m-bar-status"></span>
+      <div class="m-actions">
+        <button class="btn" id="btn-roll-m">🎲 サイコロを振る</button>
+        <button class="btn" id="btn-end-m">ターン終了</button>
+      </div>
       <div id="hand-mini" class="hand-row hand-mini" style="display:none;"></div>
     </div>
     <div id="sidebar-body">
@@ -2642,9 +2692,6 @@ function sidebarHTML() {
       <button class="btn" id="btn-roll">サイコロを振る</button>
       <button class="btn" id="btn-end">ターン終了</button>
       ${monitorBtns}
-    </div>
-    <div class="m-only" style="margin:2px 0 6px;">
-      <button id="toggle-all">▽ 交易・発展カードなども表示</button>
     </div>
     <div class="m-fold" id="fold-dev">
       <select id="dev-select" style="width:100%;margin:4px 0;padding:4px;"></select>
@@ -2770,8 +2817,17 @@ function bindCanvas() {
 }
 
 function bindButtons() {
-  document.getElementById('btn-roll').onclick = async () => { await post('roll'); };
-  document.getElementById('btn-end').onclick = async () => { await post('end_turn'); };
+  // The roll / end-turn actions live in the sidebar sheet (#btn-roll / #btn-end)
+  // AND, on a phone, in the always-visible action bar (#btn-roll-m / #btn-end-m).
+  // Both call these same handlers - no duplicated action logic.
+  const onRoll = async () => { await post('roll'); };
+  const onEndTurn = async () => { await post('end_turn'); };
+  document.getElementById('btn-roll').onclick = onRoll;
+  document.getElementById('btn-end').onclick = onEndTurn;
+  const btnRollM = document.getElementById('btn-roll-m');
+  if (btnRollM) btnRollM.onclick = onRoll;
+  const btnEndM = document.getElementById('btn-end-m');
+  if (btnEndM) btnEndM.onclick = onEndTurn;
   const bn = document.getElementById('btn-new');
   if (bn) bn.onclick = async () => { await post('monitor_new'); mode='none'; pendingKnight=false; pendingRobberHex=null; };
   const ba = document.getElementById('btn-auto');
@@ -2930,14 +2986,6 @@ function boot(opts) {
   if (tb) {
     tb.onclick = () => setBar(!barOpened(), true);
     setBar(false);
-  }
-  const ta = document.getElementById('toggle-all');
-  if (ta) {
-    const syncAll = () => {
-      const on = document.body.classList.toggle('show-all');
-      ta.textContent = on ? '△ 基本の操作だけ表示' : '▽ 交易・発展カードなども表示';
-    };
-    ta.onclick = syncAll;
   }
   window.addEventListener('resize', () => { updateMobileToggle(); });
   if (!READONLY) {
