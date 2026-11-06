@@ -19,5 +19,5 @@ jobs:
           script: |
             cd ~/docker
             # 2（git pull）を飛ばして、直接ビルド・コンテナの入れ替えだけ行う
-            docker compose up -d --build catan001
+            docker compose up -d --build catan001 catan002
 
