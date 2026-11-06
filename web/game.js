@@ -2092,17 +2092,23 @@ function updateSidebar() {
   const usable = (me && me.dev_cards) ? me.dev_cards.filter(c => c !== 'victory_point') : [];
   if (usable.length) {
     const ph = document.createElement('option');
-    ph.value = ''; ph.textContent = '-- 選んでください --';
+    ph.value = ''; ph.textContent = 'カードを使う ▼';
     devSel.appendChild(ph);
     for (const c of usable) {
       const opt = document.createElement('option');
       opt.value = c; opt.textContent = devName(c);
       devSel.appendChild(opt);
     }
+  } else {
+    // no usable card right now: the picker shows a disabled-looking placeholder
+    const o = document.createElement('option');
+    o.value = ''; o.textContent = '使えるカードなし'; o.disabled = true;
+    devSel.appendChild(o);
   }
   // Keep the player's own choice while that card is still in hand (polls
   // rebuild this list); otherwise fall back to the placeholder.
   devSel.value = (prevVal && usable.includes(prevVal)) ? prevVal : '';
+  devSel.disabled = !usable.length;
   updateDevParams();
   devSel.onchange = () => { updateDevParams(); updateActionAvailability(); };
   document.getElementById('devcards').textContent =
@@ -2350,7 +2356,11 @@ function updateTradeUI(me) {
   const g = give.value || 'wood';
   const ratio = (state.trade_ratios && state.trade_ratios[g]) || 4;
   const have = (me && me.resources) ? (me.resources[g] || 0) : 0;
-  document.getElementById('trade-ratio').textContent = `${ratio}:1（所持 ${have} ${resName(g)}）`;
+  // The text is split into two spans so the "（所持 …）" part can be hidden on
+  // phones (the hand row is always visible in the m-bar there). PC keeps the
+  // exact same text: "<ratio>:1（所持 N <res>）".
+  document.getElementById('trade-ratio').innerHTML =
+    `<span>${ratio}:1</span><span class="trade-possess">（所持 ${have} ${resName(g)}）</span>`;
 }
 
 // Monopoly / Year of Plenty: pick the resource(s) from a dropdown instead of
@@ -2694,15 +2704,17 @@ function sidebarHTML() {
       ${monitorBtns}
     </div>
     <div class="m-fold" id="fold-dev">
-      <select id="dev-select" style="width:100%;margin:4px 0;padding:4px;"></select>
+      <div class="dev-row">
+        <select id="dev-select"></select>
+        <button class="btn" id="btn-playdev">使う</button>
+      </div>
       <div id="dev-params" style="display:none;margin:4px 0;"></div>
-      <button class="btn" id="btn-playdev">選んだカードを使う</button>
     </div>
     <div class="m-fold" id="fold-build">
-      <button class="btn" id="mode-road">街道を建てる</button>
-      <button class="btn" id="mode-settle">開拓地を建てる</button>
-      <button class="btn" id="mode-city">都市を建てる</button>
-      <button class="btn" id="btn-buydev">発展カードを購入</button>
+      <button class="btn" id="mode-road"><span class="btn-txt-l">街道を建てる</span><span class="btn-txt-s">街道</span></button>
+      <button class="btn" id="mode-settle"><span class="btn-txt-l">開拓地を建てる</span><span class="btn-txt-s">開拓地</span></button>
+      <button class="btn" id="mode-city"><span class="btn-txt-l">都市を建てる</span><span class="btn-txt-s">都市</span></button>
+      <button class="btn" id="btn-buydev"><span class="btn-txt-l">発展カードを購入</span><span class="btn-txt-s">カード購入</span></button>
       <button class="btn" id="mode-none">キャンセル</button>
 
     </div>
@@ -2712,12 +2724,15 @@ function sidebarHTML() {
     <div id="bank" style="font-size:11px;color:#bbb;margin-top:2px;"></div>
     <h2>銀行・港との交易</h2>
     <div id="trade-panel" class="m-fold">
-      <label style="font-size:12px;">渡す</label>
-      <select id="trade-give" style="width:100%;padding:4px;margin:2px 0;"></select>
-      <label style="font-size:12px;">受け取る</label>
-      <select id="trade-receive" style="width:100%;padding:4px;margin:2px 0;"></select>
-      <div id="trade-ratio" style="font-size:12px;margin:2px 0;"></div>
-      <button class="btn" id="btn-trade">交換する</button>
+      <div class="trade-row">
+        <label style="font-size:12px;">渡す</label>
+        <select id="trade-give" style="width:100%;padding:4px;margin:2px 0;"></select>
+        <span class="trade-arrow">→</span>
+        <label style="font-size:12px;">受け取る</label>
+        <select id="trade-receive" style="width:100%;padding:4px;margin:2px 0;"></select>
+        <div id="trade-ratio" style="font-size:12px;margin:2px 0;"></div>
+        <button class="btn" id="btn-trade">交換する</button>
+      </div>
     </div>
     <h2>プレイヤー間交易</h2>
     <div id="playertrade-panel" class="panel m-fold">

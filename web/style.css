@@ -10,12 +10,16 @@ h2 { margin: 8px 0; font-size: 16px; }
 .btn:hover { background: #666; }
 .btn.active { background: #2a7; }
 .btn:disabled { background: #2a2a2a; color: #666; cursor: not-allowed; }
+/* Task B: building buttons carry a long label ("街道を建てる") and a short one
+   ("街道") in separate spans; the media query picks which is shown. PC keeps the
+   long label, phones the short one. */
+#fold-build .btn .btn-txt-s { display: none; }
 /* − / + quantity steppers (player trade give/want, 7's discard). Generous
-   tap target (40px+). Hidden on PC widths: the PC sidebar already lays all the
+   tap target (32px). Hidden on PC widths: the PC sidebar already lays all the
    details out and must not change. */
 button.qty-step {
-  min-width: 40px; min-height: 40px; padding: 0; margin: 0;
-  font-size: 18px; line-height: 1.2;
+  min-width: 32px; min-height: 32px; padding: 0; margin: 0;
+  font-size: 16px; line-height: 1.2;
   background: #444; color: #eee; border: 1px solid #555; border-radius: 6px;
   cursor: pointer; font-family: inherit;
 }
@@ -25,6 +29,28 @@ button.qty-step {
 .panel select { background: #1a1a1a; color: #eee; border: 1px solid #555; border-radius: 4px; }
 .discard-row input { background: #1a1a1a; color: #eee; border: 1px solid #555; border-radius: 4px; }
 #trade-panel select { background: #1a1a1a; color: #eee; border: 1px solid #555; border-radius: 4px; }
+/* Task C: dev card picker = select styled like a .btn + adjacent "使う" button,
+   laid out as ONE row (phone and PC). Native select with appearance:none and a
+   custom ▼ caret. */
+.dev-row { display: flex; gap: 4px; align-items: center; }
+#dev-select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: #444;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%23eee' stroke-width='2'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  color: #eee;
+  border: none;
+  border-radius: 4px;
+  padding: 6px 28px 6px 10px;
+  min-height: 40px;
+  font-family: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+#dev-select:disabled { background-color: #2a2a2a; color: #666; cursor: not-allowed; }
+.dev-row #dev-select { flex: 1 1 auto; min-width: 0; }
 /* Short-game badge (e.g. 7点ゲーム). Only shown when the house-rule victory
    target is not the standard 10; hidden otherwise (state.victory_target missing
    or 10 -> nothing rendered, no error). */
@@ -137,6 +163,23 @@ button.qty-step {
   /* long forms are expanded by default on a phone: the action sheet shows all
      details as soon as it is opened (the "#toggle-all" toggle is gone). */
   .m-fold { display: block; }
+  /* Task B: building buttons in ONE row on a phone, compact padding, short
+     labels via the .btn-txt spans. Height kept >= 36px. */
+  #sidebar-body #fold-build { display: flex; flex-wrap: wrap; gap: 4px; align-items: stretch; }
+  #sidebar-body #fold-build .btn { padding: 8px 10px; }
+  #sidebar-body #fold-build .btn .btn-txt-l { display: none; }
+  #sidebar-body #fold-build .btn .btn-txt-s { display: inline; }
+  /* Task A: bank/port trade on ONE row on a phone (labels + full-width selects
+     are column layout by default; here we go horizontal and drop the labels -
+     the → arrow carries the direction). */
+  #trade-panel .trade-row { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 2px; }
+  #trade-panel label { display: none; }
+  #trade-panel #trade-give { width: auto !important; flex: 1 1 auto; min-width: 0; }
+  #trade-panel #trade-receive { width: auto !important; flex: 1 1 auto; min-width: 0; }
+  #trade-panel #btn-trade { margin: 0; }
+  /* ...and hide the "(所持 N …)" part of the ratio line on phones: the hand is
+     always visible in the m-bar there, so only the "4:1" ratio is shown. */
+  #trade-ratio .trade-possess { display: none; }
 }
 /* ---------------------------------------------------------------------------
    Event log (bottom of the action panel) + toasts (centre of the screen)
