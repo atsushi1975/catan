@@ -23,7 +23,11 @@ button.qty-step {
   background: #444; color: #eee; border: 1px solid #555; border-radius: 6px;
   cursor: pointer; font-family: inherit;
 }
-@media (min-width: 861px) { button.qty-step { display: none; } }
+@media (min-width: 861px) {
+  button.qty-step { display: none; }
+  .qty-val { display: none; }
+  .pt-head-s { display: none; }
+}
 .panel { background: #2c2c34; border: 1px solid #7a7a8a; border-radius: 6px; padding: 8px; margin: 8px 0; }
 .panel h2 { margin-top: 0; }
 .panel select { background: #1a1a1a; color: #eee; border: 1px solid #555; border-radius: 4px; }
@@ -180,6 +184,15 @@ button.qty-step {
   /* ...and hide the "(所持 N …)" part of the ratio line on phones: the hand is
      always visible in the m-bar there, so only the "4:1" ratio is shown. */
   #trade-ratio .trade-possess { display: none; }
+
+  /* Player trade UI: 2 columns on mobile */
+  #pt-builder .pt-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  #pt-builder .pt-head-l { display: none; }
+  #pt-builder .pt-head-s { display: inline; font-size: 12px; font-weight: bold; }
+  #pt-give input[data-pt], #pt-want input[data-pt] { display: none !important; }
+  #pt-give .pt-have { display: none; }
+  .qty-val { display: inline-block; min-width: 14px; text-align: center; font-size: 13px; font-weight: bold; color: #eee; }
+  .pt-ctrl { gap: 2px !important; }
 }
 /* ---------------------------------------------------------------------------
    Event log (bottom of the action panel) + toasts (centre of the screen)

@@ -2272,17 +2272,30 @@ function updatePlayerTradeUI(me) {
   }
 }
 
+function syncQtyLabel(inp) {
+  if (!inp || !inp.parentElement) return;
+  const valSpan = inp.parentElement.querySelector('.qty-val');
+  if (valSpan) {
+    valSpan.textContent = inp.value || '0';
+  }
+}
+
 // − / + quantity stepper (player trade give/want + 7's discard).
 // The number <input> keeps the authoritative value (read back by
 // #btn-pt-propose / #btn-discard through parseInt), so the buttons and the
 // existing read paths share one source of truth and never double-manage state.
 function stepQtyByDir(inp, dir) {
   const cur = parseInt(inp.value || '0') || 0;
-  if (dir === '-') { inp.value = String(Math.max(0, cur - 1)); return; }
+  if (dir === '-') {
+    inp.value = String(Math.max(0, cur - 1));
+    syncQtyLabel(inp);
+    return;
+  }
   const maxRaw = (inp.getAttribute) ? (inp.getAttribute('max') || '') : '';
   const max = (maxRaw !== '' && !isNaN(parseInt(maxRaw))) ? parseInt(maxRaw) : Infinity;
   const next = (isFinite(max) ? Math.min(cur + 1, max) : cur + 1);
   inp.value = String(Math.max(0, next));
+  syncQtyLabel(inp);
 }
 
 function buildPtBuilder(me) {
@@ -2292,32 +2305,44 @@ function buildPtBuilder(me) {
     g.innerHTML = ''; w.innerHTML = '';
     const mkRow = (host, which, k) => {
       const row = document.createElement('label');
+      row.className = 'pt-row';
       row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;font-size:12px;margin:2px 0;';
       const left = document.createElement('span');
+      left.className = 'pt-label';
       left.innerHTML = which === 'give'
         ? `${resName(k)} <span class="pt-have" data-k="${k}"></span>`
         : resName(k);
       const ctrl = document.createElement('span');
+      ctrl.className = 'pt-ctrl';
       ctrl.style.cssText = 'display:flex;align-items:center;gap:4px;';
       const inp = document.createElement('input');
       inp.type = 'number'; inp.min = '0'; inp.value = '0';
       inp.dataset.pt = which; inp.dataset.k = k;
       inp.style.cssText = 'width:56px;padding:2px;background:#1a1a1a;color:#eee;border:1px solid #555;border-radius:4px;';
+      inp.addEventListener('input', () => syncQtyLabel(inp));
+      inp.addEventListener('change', () => syncQtyLabel(inp));
+
       const mkBtn = (dir) => {
         const b = document.createElement('button');
         b.type = 'button'; b.className = 'qty-step';
         b.dataset.pt = which; b.dataset.k = k; b.dataset.dir = dir;
         b.textContent = (dir === '+' ? '+' : '−');
         b.onclick = () => stepQtyByDir(inp, dir);
-        ctrl.appendChild(b);
         return b;
       };
+
+      const valSpan = document.createElement('span');
+      valSpan.className = 'qty-val';
+      valSpan.textContent = '0';
+
       ctrl.appendChild(inp);
       ctrl.appendChild(mkBtn('-'));
+      ctrl.appendChild(valSpan);
       ctrl.appendChild(mkBtn('+'));
       row.appendChild(left);
       row.appendChild(ctrl);
       host.appendChild(row);
+      syncQtyLabel(inp);
     };
     for (const k of RES) { mkRow(g, 'give', k); mkRow(w, 'want', k); }
     g.dataset.built = '1';
@@ -2326,7 +2351,10 @@ function buildPtBuilder(me) {
   g.querySelectorAll('input[data-pt="give"]').forEach(inp => {
     inp.max = myres[inp.dataset.k] || 0;
     const v = parseInt(inp.value || '0') || 0;
-    if (v > (inp.max || 0)) inp.value = String(inp.max || 0);   // max shrank: clamp
+    if (v > (inp.max || 0)) {
+      inp.value = String(inp.max || 0);   // max shrank: clamp
+      syncQtyLabel(inp);
+    }
   });
   g.querySelectorAll('.pt-have').forEach(s => { s.textContent = '（所持 ' + (myres[s.dataset.k] || 0) + '）'; });
   const t = document.getElementById('pt-targets');
@@ -2739,10 +2767,16 @@ function sidebarHTML() {
       <div id="pt-note" style="display:none;font-size:12px;color:#ffd54f;"></div>
       <div id="pt-active" style="display:none;"></div>
       <div id="pt-builder">
-        <div style="font-size:12px;">渡す（自分 &rarr; 相手）</div>
-        <div id="pt-give"></div>
-        <div style="font-size:12px;margin-top:4px;">ほしい（相手 &rarr; 自分）</div>
-        <div id="pt-want"></div>
+        <div class="pt-cols">
+          <div class="pt-col">
+            <div class="pt-head"><span class="pt-head-l">渡す（自分 &rarr; 相手）</span><span class="pt-head-s">渡す &rarr;</span></div>
+            <div id="pt-give"></div>
+          </div>
+          <div class="pt-col">
+            <div class="pt-head"><span class="pt-head-l">ほしい（相手 &rarr; 自分）</span><span class="pt-head-s">&larr; ほしい</span></div>
+            <div id="pt-want"></div>
+          </div>
+        </div>
         <div style="font-size:12px;margin-top:4px;">相手</div>
         <div id="pt-targets"></div>
         <div style="margin-top:6px;"><button class="btn" id="btn-pt-propose">提案する</button></div>
