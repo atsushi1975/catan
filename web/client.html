@@ -398,7 +398,7 @@
       body: JSON.stringify(body)}).then(r => r.json());
   }
 
-  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
   // Browser tab title: カタン（プレイヤー：<名前>） once the player has joined.
   function setTitle(name) {

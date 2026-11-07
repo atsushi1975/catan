@@ -39,24 +39,13 @@ app_core.ensure_started()
 from urllib.parse import parse_qs
 
 
-def _client_ip(environ):
-    # PythonAnywhere terminates TLS and proxies to the worker: the real client
-    # shows up in X-Forwarded-For. We only use this for the /env debug gate, so
-    # default to a non-local value when it is missing.
-    fwd = environ.get('HTTP_X_FORWARDED_FOR', '')
-    if fwd:
-        return fwd.split(',')[0].strip()
-    return environ.get('REMOTE_ADDR', '')
-
-
 def application(environ, start_response):
     method = environ.get('REQUEST_METHOD', 'GET').upper()
     path = environ.get('PATH_INFO', '/') or '/'
     query = parse_qs(environ.get('QUERY_STRING', ''))
-    ip = _client_ip(environ)
 
     if method == 'GET':
-        status, ctype, body = route_get(path, query, ip)
+        status, ctype, body = route_get(path, query)
         status_line = {
             200: '200 OK',
             404: '404 Not Found',
@@ -79,7 +68,7 @@ def application(environ, start_response):
             payload = json.loads(raw)
         except Exception:
             payload = {}
-        res = route_post(payload, query, ip)
+        res = route_post(payload, query)
         body = json.dumps(res).encode('utf-8')
         start_response('200 OK', [
             ('Content-Type', 'application/json; charset=utf-8'),

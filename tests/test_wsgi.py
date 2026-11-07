@@ -71,16 +71,18 @@ check(set(hj) == {"title", "version", "status"}, "GET /health body keys are exac
 check(hj.get("status") == "idle", "GET /health status is idle on a fresh room")
 check("application/json" in h["Content-Type"], "GET /health content-type is json")
 
-# --- /env debug gate --------------------------------------------------------
+# --- /env hot-seat gate -----------------------------------------------------
+os.environ.pop("CATAN_HOTSEAT", None)
 s, j = get_json("/env", ip="127.0.0.1")
-check(j["debug_allowed"] is True, "/env from loopback allows debug")
-s, j = get_json("/env", ip="203.0.113.9")
-check(j["debug_allowed"] is False, "/env from a public address denies debug")
-# X-Forwarded-For (PythonAnywhere proxy) is honoured
-s, j = get_json("/env", ip="127.0.0.1", headers={"HTTP_X_FORWARDED_FOR": "203.0.113.9, 10.0.0.1"})
-check(j["debug_allowed"] is False, "/env uses X-Forwarded-For (remote) ")
+check(j["debug_allowed"] is False, "/env is read-only by default (even from loopback)")
 s, j = get_json("/env", ip="127.0.0.1", headers={"HTTP_X_FORWARDED_FOR": "127.0.0.1"})
-check(j["debug_allowed"] is True, "/env uses X-Forwarded-For (local)")
+check(j["debug_allowed"] is False, "X-Forwarded-For cannot enable the hot-seat view")
+
+os.environ["CATAN_HOTSEAT"] = "1"
+s, j = get_json("/env", ip="203.0.113.9")
+check(j["debug_allowed"] is True, "/env follows CATAN_HOTSEAT=1, not the client IP")
+s, j = get_json("/env", ip="127.0.0.1")
+check(j["debug_allowed"] is True, "/env with CATAN_HOTSEAT=1")
 
 # --- common lobby link config ----------------------------------------------
 os.environ["CATAN_LOBBY_URL"] = "https://lobby.example/"
@@ -100,6 +102,21 @@ s, j = get_json("/env")
 check(j.get("lobby_url") == "", "/env lobby_url is empty when unset")
 
 # --- room reset + lobby -----------------------------------------------------
+# Token-less monitor actions are refused until the operator opts in.
+os.environ.pop("CATAN_HOTSEAT", None)
+r = post_json({"action": "room_reset"})
+check(r.get("ok") is False and "ホットシート" in r.get("error", ""),
+      "room_reset denied when CATAN_HOTSEAT is off")
+r = post_json({"action": "monitor_new"})
+check(r.get("ok") is False, "monitor_new denied when CATAN_HOTSEAT is off")
+r = post_json({"action": "auto_setup"})
+check(r.get("ok") is False, "auto_setup denied when CATAN_HOTSEAT is off")
+r = post_json({"action": "give_resources"})
+check(r.get("ok") is False, "give_resources denied when CATAN_HOTSEAT is off")
+
+os.environ["CATAN_HOTSEAT"] = "1"
+r = post_json({"action": "monitor_new"})
+check(r.get("ok") is True, "monitor_new allowed with CATAN_HOTSEAT=1")
 r = post_json({"action": "room_reset"})
 check(r.get("ok") is True, "room_reset ok")
 
@@ -118,15 +135,6 @@ check(b2.get("ok") is True and b2.get("token") and b2["token"] != a["token"],
 tok_a, tok_b = a["token"], b2["token"]
 s, j = get_json("/room")
 check(len(j.get("seats", [])) == 2, "/room shows 2 seats")
-
-# --- monitor-only actions denied from remote, allowed locally ---------------
-r = post_json({"action": "monitor_new"}, ip="203.0.113.9")
-check(r.get("ok") is False and "外部" in r.get("error", ""),
-      "monitor_new denied from remote address")
-r = post_json({"action": "auto_setup"}, ip="203.0.113.9")
-check(r.get("ok") is False, "auto_setup denied from remote address")
-r = post_json({"action": "give_resources"}, ip="203.0.113.9")
-check(r.get("ok") is False, "give_resources denied from remote address")
 
 # --- drafts (roll + pick) ---------------------------------------------------
 # all house rules must be fixed before starting

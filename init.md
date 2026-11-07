@@ -22,7 +22,7 @@ Phase 3 完了 — Pythonバックエンド + Canvas フロントエンド + PWA
   - ポート・バインド先は `--port` / `-p`、`--host` で指定できる（既定は `0.0.0.0:8000`）
   - 優先度: コマンドライン引数 > 環境変数 `CATAN_PORT` > `8000`
   - 例: `python3 server.py -p 8080` ／ `python3 server.py --host 127.0.0.1 -p 8080`
-- 主なエンドポイント: GET `/room`（ロビー）, GET `/state?token=`（自分の視点／無指定は監視の全表示）, POST `/action`（`join`/`room_roll`/`room_pick`/`room_start`/`room_reset`/`room_init`/`monitor_new` と roll, end_turn, build_*, buy_dev, play_dev, move_robber, trade_*, discard, give_resources, auto_setup）
+- 主なエンドポイント: GET `/room`（ロビー）, GET `/state?token=`（自分の視点／無指定は観戦の公開情報のみ）, POST `/action`（`join`/`room_roll`/`room_pick`/`room_start`/`room_reset`/`room_init`/`monitor_new` と roll, end_turn, build_*, buy_dev, play_dev, move_robber, trade_*, discard, give_resources, auto_setup）
 - ヘックス座標は中心対称レイアウト（radius-2 axial hexagon）に修正済み
 
 ## ルール検証メモ（公式 CN3081 準拠）
@@ -99,7 +99,7 @@ Phase 3 完了 — Pythonバックエンド + Canvas フロントエンド + PWA
 - **`wsgi.py`** を新設（PythonAnywhere 用）。**標準ライブラリのみ**の WSGI アプリで Flask 不要。`application`/`app` を公開。
 - ルーティング: `/`(client.html), `/monitor`(index.html), `/style.css`, `/game.js`, `/assets/*`, `/room`, `/env`, `/state`。パストラバーサルは 404。
 - **`/env`** に `pid`/`owner_pid` を追加。PythonAnywhere で複数ワーカーになると値が食い違い、状態分裂を検知できる（**1 ワーカー必須**）。
-- `wsgi.py` のクライアント IP は `X-Forwarded-For`（プロキシ経由）を優先。これにより公開 URL 経由では `debug_allowed=false`（`?debug=1` は外部無効のまま）。
+- クライアント IP / `X-Forwarded-For` は**認可に使わない**。`debug_allowed` は `CATAN_HOTSEAT=1` のときだけ true（既定は無効）。
 - Codespaces/PythonAnywhere の手順と無料枠の注意は `README.md` に記載。
 - テスト: `tests/test_wsgi.py`（WSGI 経由の E2E。静的配信・`/env` ゲート・join/roll/pick/start・秘匿情報の絞り込み・405/404）。
 
@@ -115,15 +115,15 @@ Phase 3 完了 — Pythonバックエンド + Canvas フロントエンド + PWA
 - `/state` の viewer を **3値**に: `pid`（本人視点）/ `'spectator'`（公開情報のみ）/ `'debug'`（全部見える）。
   - 有効トークン → その `pid`
   - トークンなし・不正 → `'spectator'`（`resources`/`dev_cards`/`new_dev_cards`/`hidden_vp` を出さない）
-  - `'debug'` は **`view=monitor` かつ信頼アドレス（既定は loopback）** のときだけ。ローカル監視画面のために `game.js` は `VIEW==='monitor'` のとき `?view=monitor` を付ける。
-  - `'debug'` を IP だけで与えない（＝localhost のプレイヤー用ページは昇格しない）。監視の表示は従来どおり全公開。
+  - `'debug'` は **`view=monitor` かつ `CATAN_HOTSEAT=1`** のときだけ。ローカル監視画面のために `game.js` は `VIEW==='monitor'` のとき `?view=monitor` を付ける。
+  - `'debug'` を IP や `X-Forwarded-For` で与えない（プロキシ配下・偽装ヘッダーでも昇格しない）。監視の表示は `CATAN_HOTSEAT=1` のとき全公開。
   - `serialize()` の `you` は pid 以外なら `null`、`role`（`player`/`spectator`/`debug`）を追加。
-- `/action` の権限: `handle_action(..., actor=None, local=False)` は**すべてのゲーム操作を拒否**（「この操作は外部からは行えません」）。トークンなしで許すのは信頼アドレスからのホットシート/テスト操作のみ。
-- 既存の「外部からの監視専用操作（`room_init`/`monitor_new`/`auto_setup`/`give_resources`）拒否」は維持。
+- `/action` の権限: `handle_action(..., actor=None)` は**すべてのゲーム操作を拒否**。トークンなしで許すのは `CATAN_HOTSEAT=1` のホットシート/テスト操作のみ。
+- 既存の「監視専用操作（`room_init`/`monitor_new`/`auto_setup`/`give_resources`）はトークンなしのみ」は維持。
 
 ### テスト
 
-- `tests/test_authz.py`: 段階1（トークンなし/不正の `/state` に秘匿キーが無い／ローカル監視は `debug`／IP だけでは昇格しない／`view=monitor` でも外部は `spectator`）と段階2（`roll`/`end_turn`/`buy_dev`/`build_*`/`discard`/`trade_respond` がリモートのトークンなしで拒否され、ゲーム状態が変わらない）。
+- `tests/test_authz.py`: 段階1（トークンなし/不正の `/state` に秘匿キーが無い／ホットシート時だけ `debug`／IP や XFF では昇格しない）と段階2（`roll`/`end_turn`/`buy_dev`/`build_*`/`discard`/`trade_respond` がトークンなしで拒否され、ゲーム状態が変わらない）。
 - `/tmp/opencode/test_ui24.js`: ローカル監視= `debug` で全公開、トークンなしクライアント= `spectator` で秘匿情報なし＋「観戦」表示、有効トークン= `player`。
 
 ## 勝敗確定後の発展カード公開（v18）
@@ -298,7 +298,7 @@ Phase 3 完了 — Pythonバックエンド + Canvas フロントエンド + PWA
 - `web/client.html`（`/`）: **プレイヤー用クライアント**。ロビー（名前入力・ダイス・開始）＋自分の視点の盤面＋**操作（サイコロ／建設／交易／発展／捨て札／盗賊）**。
 - `web/index.html`（`/monitor`）: **監視画面（閲覧のみ）**。全情報を表示（トークン無し＝`viewer=None`）するが**操作ボタンは持たない**。ゲーム操作はクライアントから行う。
   - 手番クライアントのみ操作可能（サーバー側で `actor == current` を強制）。
-  - ローカルのホットシート検証用に `GET /monitor?debug=1` で操作を一時的に有効化できる（既定は閲覧専用）。
+  - ローカルのホットシート検証用に `GET /monitor?debug=1` で操作を一時的に有効化できる（`CATAN_HOTSEAT=1` 起動時のみ。既定は閲覧専用）。
 - `web/game.js`: 盤面描画・操作の共通JS。両ページが読み込む。サイドバーHTMLはJSが生成。
 - 旧 `web/app.js` は未使用。
 
@@ -521,10 +521,10 @@ v27 の後に「ブラウザを完全終了 → 起動」で復帰できない�
 
 ## 遠隔からのロビー操作（セキュリティ）
 - `room_reset`（部屋の全消去）が**無認証で外部から実行できた**ため、転送URLを知る誰でも
-  ゲームを消せた。→ `local`（既定は loopback のみ）で制限。
+  ゲームを消せた。→ 現在は `CATAN_HOTSEAT=1` のときだけ許可（IP では判定しない）。
 - `room_setting`（ハウスルール変更＝盤面再生成とダイス消去）と `room_start` は
   **席を持たない相手でも実行できた**。→ 席に着いているトークンが必要（空の部屋は許可）。
-- 監視画面の `room_init` / `monitor_new` などは従来どおり `local` かつトークン無しのみ。
+- 監視画面の `room_init` / `monitor_new` などは `CATAN_HOTSEAT=1` かつトークン無しのみ。
 
 ## v37: 色ドラフト（順番ドラフトの第2段階）
 - 色は「入室順の早い者勝ち」ではなく、**順番ドラフトと同じダイス順**で選ぶ。

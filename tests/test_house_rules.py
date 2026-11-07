@@ -8,6 +8,9 @@ from game.resources import TerrainType
 import app_core
 from app_core import handle_lobby, serialize_room, ROOM
 
+# This test uses the token-less room_reset helper for setup.
+os.environ["CATAN_HOTSEAT"] = "1"
+
 fails = 0
 def check(cond, msg):
     global fails

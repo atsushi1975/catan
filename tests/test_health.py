@@ -26,7 +26,7 @@ def check(cond, msg):
 
 def get_health():
     """Call the shared router directly (no HTTP server needed)."""
-    status, ctype, body = app_core.route_get("/health", {}, "127.0.0.1")
+    status, ctype, body = app_core.route_get("/health", {})
     return status, json.loads(body)
 
 def reset_room():

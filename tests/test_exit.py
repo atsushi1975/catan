@@ -25,9 +25,12 @@ def check(cond, msg):
         fails += 1
 
 
-REMOTE = "203.0.113.7"    # not a trusted address: players really play from here
-LOCAL = "127.0.0.1"
 NAMES = ["アリス", "ボブ", "カレン", "ダン"]
+
+# These tests use the token-less room_reset / monitor helpers for setup, so the
+# explicit hot-seat switch is on by default. Section D turns it off to check
+# that the switch (not the client address) is what grants access.
+os.environ["CATAN_HOTSEAT"] = "1"
 
 # --- fake clock --------------------------------------------------------------
 real_now = app_core._now
@@ -58,22 +61,22 @@ def start_game(n=2):
     return toks
 
 
-def state(token=None, ip=REMOTE, view=None):
+def state(token=None, view=None):
     q = {}
     if token:
         q["token"] = [token]
     if view:
         q["view"] = [view]
-    status, ctype, body = route_get("/state", q, ip)
+    status, ctype, body = route_get("/state", q)
     return json.loads(body)
 
 
-def act(action, token, ip=REMOTE, **kw):
+def act(action, token, **kw):
     p = {"action": action}
     if token is not None:
         p["token"] = token
     p.update(kw)
-    return route_post(p, {}, ip)
+    return route_post(p, {})
 
 
 def finish(winner=0):
@@ -162,7 +165,7 @@ check(ROOM["exit_request"] is None, "...and no request is left over")
 st = state(None)
 check(st.get("phase") == "lobby" and st.get("notice", {}).get("text") == "ゲームは中止されました（アリスさんの退出）",
       "the notice names the player who left")
-check(state(None, ip=LOCAL, view="monitor").get("notice") is not None,
+check(state(None, view="monitor").get("notice") is not None,
       "the notice is public: the monitor sees it too")
 check(state(t[1]).get("notice") is not None, "a former player (no seat any more) sees it")
 
@@ -271,8 +274,8 @@ check(act("exit_vote", t[1], id=rid, approve=True).get("ok") is False,
 # spectators / monitor
 start_game(2)
 check(handle_lobby("exit_request", {}).get("ok") is False, "monitor (no token) cannot ask")
-check(route_post({"action": "exit_request"}, {}, LOCAL).get("ok") is False,
-      "...even from a trusted address")
+check(route_post({"action": "exit_request"}, {}).get("ok") is False,
+      "...even in hot-seat mode (a seat token is required)")
 
 # no request during the lobby or after the game
 handle_lobby("room_reset", {})
@@ -310,23 +313,25 @@ check("votes" not in json.dumps(c) and "votes" not in json.dumps(mine),
       "the votes of others are not in the response")
 check("exit_request" not in state(None) and "exit_request" not in state("made-up-token"),
       "spectators and seat-less tokens get no request")
-check("exit_request" not in state(None, ip=LOCAL, view="monitor"), "the monitor gets none either")
+check("exit_request" not in state(None, view="monitor"), "the monitor gets none either")
 act("exit_vote", t[2], id=rid, approve=False)
 check("exit_request" not in state(t[1]), "a settled request is no longer shown")
 
 # ===========================================================================
-# D. remote callers
+# D. token-less power actions are gated by the explicit switch
 # ===========================================================================
 at(1000)
 t = start_game(2)
-r = route_post({"action": "room_reset"}, {}, REMOTE)
-check(r.get("ok") is False, "room_reset from outside is still refused")
-check(handle_lobby("room_reset", {}, local=False).get("ok") is False,
-      "...also straight on handle_lobby(local=False)")
+os.environ.pop("CATAN_HOTSEAT", None)
+r = route_post({"action": "room_reset"}, {})
+check(r.get("ok") is False, "room_reset denied while CATAN_HOTSEAT is off")
+check(handle_lobby("room_reset", {}).get("ok") is False,
+      "...also straight on handle_lobby")
 check(in_game() and len(ROOM["seats"]) == 2, "...and the running game survived")
-check(act("exit_request", t[0], ip=REMOTE).get("ok") is True,
-      "a remote seated player can still use the exit request")
+check(act("exit_request", t[0]).get("ok") is True,
+      "a seated player can still use the exit request")
 act("exit_cancel", t[0])
+os.environ["CATAN_HOTSEAT"] = "1"
 
 # ===========================================================================
 # E. idle clean-up of a finished game
@@ -342,7 +347,7 @@ finish()
 at(5000)
 state(t[0])
 at(5300)
-state(None, ip=LOCAL, view="monitor")
+state(None, view="monitor")
 at(5500)
 state(None)
 check(ROOM["last_seen"] == 5000.0, "spectator / monitor visits do not count as activity")
@@ -390,10 +395,10 @@ check(in_lobby_empty(), "IDLE_RESET_SECONDS can be replaced (5 s here)")
 
 # hot-seat monitor game (no seats): nothing to time, nothing is reset
 handle_lobby("room_reset", {})
-route_post({"action": "monitor_new"}, {}, LOCAL)
+route_post({"action": "monitor_new"}, {})
 finish()
 at(99999999)
-state(None, ip=LOCAL, view="monitor")
+state(None, view="monitor")
 check(in_game(), "a seat-less hot-seat game is not auto-reset")
 
 # ---------------------------------------------------------------------------

@@ -12,8 +12,8 @@ const DEV_LABEL = {
 function resName(k) { return RES_LABEL[k] || k; }
 function devName(c) { return DEV_LABEL[c] || c; }
 function escHtml(s) {
-  return String(s == null ? '' : s).replace(/[&<>"]/g,
-    c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'}[c]));
+  return String(s == null ? '' : s).replace(/[&<>"']/g,
+    c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[c]));
 }
 function toResKey(s) {
   s = (s || '').trim();
@@ -741,8 +741,8 @@ function pushLog(ev, priv) {
 }
 
 function escapeHtml(s) {
-  return String(s == null ? '' : s).replace(/[&<>"]/g,
-    c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  return String(s == null ? '' : s).replace(/[&<>"']/g,
+    c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
 function renderEventLog() {
@@ -1065,9 +1065,9 @@ function api(path) {
   let url = path;
   const params = [];
   if (TOKEN) params.push('token=' + encodeURIComponent(TOKEN));
-  // Tell the server this is the view-only monitor page. The server only grants
-  // the full (debug) view to a LOCAL monitor, so a token-less player page can
-  // never be upgraded to "see everything" just by being on the same machine.
+  // Tell the server this is the monitor page. The server only grants the full
+  // (debug) view when the operator enabled CATAN_HOTSEAT=1, so a token-less
+  // player page can never be upgraded to "see everything".
   if (VIEW === 'monitor') params.push('view=monitor');
   if (params.length) url += (path.includes('?') ? '&' : '?') + params.join('&');
   return fetch(url).then(r => r.json());
@@ -1989,7 +1989,7 @@ function updateInitButton() {
   const b = document.getElementById('btn-init');
   if (!b) return;
   const running = !!(state && state.players && state.players.length);
-  b.style.display = (VIEW === 'monitor' && running) ? 'block' : 'none';
+  b.style.display = (VIEW === 'monitor' && running && !READONLY) ? 'block' : 'none';
 }
 
 function updateSidebar() {
@@ -1997,7 +1997,7 @@ function updateSidebar() {
   updateInitButton();
   const status = document.getElementById('status');
   const cur = playerAt(state.current);
-  const curName = cur ? (cur.name || '—') : '—';
+  const curName = cur ? escHtml(cur.name || '—') : '—';
   const curId = cur ? cur.id : '?';
   let hint = '';
   if (isMyTurn()) {
@@ -2012,7 +2012,7 @@ function updateSidebar() {
   }
   let extra = '';
   if (hasPendingDiscards()) {
-    const waiting = Object.keys(state.pending_discards).map(k => playerName(Number(k))).join('、');
+    const waiting = Object.keys(state.pending_discards).map(k => escHtml(playerName(Number(k)))).join('、');
     const iMust = VIEW === 'client' && state.pending_discards[String(state.you)] !== undefined;
     extra = iMust
       ? '<br><b style="color:#ff8">7: あなたはカードを捨ててください</b>'
@@ -2023,10 +2023,10 @@ function updateSidebar() {
   let mine = '';
   if (VIEW === 'client') {
     mine = playerAt(state.you)
-      ? `<br><span style="color:#8cf">あなた: <b>${playerName(state.you)}</b> (P${state.you})</span>`
+      ? `<br><span style="color:#8cf">あなた: <b>${escHtml(playerName(state.you))}</b> (P${state.you})</span>`
       : `<br><span style="color:#f88">このゲームに参加していません（観戦モード）</span>`;
   }
-  status.innerHTML = `フェーズ: <b>${phaseJa[state.phase]||state.phase}</b> | ターン ${state.turn_number||0}<br>手番: <b>${curName}</b> (P${curId})${hint}${extra}${mine}<br>勝者: ${state.winner!==null && state.winner!==undefined?playerName(state.winner):'-'}`;
+  status.innerHTML = `フェーズ: <b>${phaseJa[state.phase]||state.phase}</b> | ターン ${state.turn_number||0}<br>手番: <b>${curName}</b> (P${curId})${hint}${extra}${mine}<br>勝者: ${state.winner!==null && state.winner!==undefined?escHtml(playerName(state.winner)):'-'}`;
 
   // Short-game badge: shown only when the house rule victory_target is not the
   // standard 10 (i.e. the 7-point game). A missing / "10" value means the standard
@@ -2062,7 +2062,7 @@ function updateSidebar() {
         ? remaining.map(c => devName(c) + (fresh.has(c) ? '(新規)' : '')).join(',')
         : 'なし') + ']';
     }
-    div.innerHTML = `<span style="display:inline-block;width:12px;height:12px;background:${playerColor(p.id)};border:1px solid #fff;border-radius:2px;margin-right:4px;vertical-align:-1px;"></span><b>${p.name}</b> (P${p.id}) 勝利点:${p.total_vp} 手札:${p.hand_count} 発展:${p.dev_count}${p.longest_road?' [最長の道]':''}${p.largest_army?' [最大騎士団]':''}${used}${held}`;
+    div.innerHTML = `<span style="display:inline-block;width:12px;height:12px;background:${playerColor(p.id)};border:1px solid #fff;border-radius:2px;margin-right:4px;vertical-align:-1px;"></span><b>${escHtml(p.name)}</b> (P${p.id}) 勝利点:${p.total_vp} 手札:${p.hand_count} 発展:${p.dev_count}${p.longest_road?' [最長の道]':''}${p.largest_army?' [最大騎士団]':''}${used}${held}`;
     pd.appendChild(div);
   }
 
@@ -2243,7 +2243,7 @@ function updatePlayerTradeUI(me) {
         html += `<div style="font-size:12px;color:#f88;margin-top:4px;">応答できる相手がいません。</div>`;
       } else {
         for (const t of responders) {
-          html += `<div style="margin-top:4px;font-size:12px;">${playerName(t)}
+          html += `<div style="margin-top:4px;font-size:12px;">${escHtml(playerName(t))}
             <button class="btn" data-pt-accept="${t}">承諾</button>
             <button class="btn" data-pt-decline="${t}">拒否</button></div>`;
         }
@@ -2378,7 +2378,7 @@ function buildPtBuilder(me) {
     if (p.id === (VIEW === 'client' && state.you !== null ? state.you : state.current)) continue;
     const lbl = document.createElement('label');
     lbl.style.cssText = 'display:inline-block;margin-right:8px;font-size:12px;';
-    lbl.innerHTML = `<input type="checkbox" value="${p.id}" ${checked.has(String(p.id)) ? 'checked' : ''}> ${p.name}`;
+    lbl.innerHTML = `<input type="checkbox" value="${p.id}" ${checked.has(String(p.id)) ? 'checked' : ''}> ${escHtml(p.name)}`;
     t.appendChild(lbl);
   }
 }
@@ -2698,7 +2698,7 @@ function sidebarHTML() {
     <div id="bank" style="font-size:11px;color:#bbb;margin-top:2px;"></div>
     </div>`;
   }
-  const monitorBtns = VIEW === 'monitor'
+  const monitorBtns = (VIEW === 'monitor' && !READONLY)
     ? `<button class="btn" id="btn-new">新しいゲーム</button>
        <button class="btn" id="btn-auto">自動配置</button>` : '';
   return `
@@ -3059,14 +3059,16 @@ function boot(opts) {
     bindCanvas();
     bindButtons();
   }
-  // Room-level control: available on the monitor even in view-only mode.
-  const bi = document.getElementById('btn-init');
-  if (bi) bi.onclick = async () => {
-    if (!confirm('ゲームを初期化してロビーに戻しますか？（メンバーは残るので、ダイスを振り直して再開できます）')) return;
-    await post('room_init');
-    updateInitButton();
-    render();
-  };
+  // Room-level control: only when controls are enabled (hot-seat mode + ?debug=1).
+  if (!READONLY) {
+    const bi = document.getElementById('btn-init');
+    if (bi) bi.onclick = async () => {
+      if (!confirm('ゲームを初期化してロビーに戻しますか？（メンバーは残るので、ダイスを振り直して再開できます）')) return;
+      await post('room_init');
+      updateInitButton();
+      render();
+    };
+  }
   window.addEventListener('resize', resize);
   // Keep the canvas matched to its box no matter what changes it
   // (sheet open/close, orientation change, sidebar reflow, DPR change).

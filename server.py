@@ -22,7 +22,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
         qs = parse_qs(parsed.query)
-        status, ctype, body = route_get(parsed.path, qs, self.client_address[0])
+        status, ctype, body = route_get(parsed.path, qs)
         self._send(status, ctype, body)
 
     def do_POST(self):
@@ -34,7 +34,7 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             payload = {}
         qs = parse_qs(parsed.query)
-        res = route_post(payload, qs, self.client_address[0])
+        res = route_post(payload, qs)
         body = json.dumps(res).encode()
         self._send(200, "application/json; charset=utf-8", body)
 

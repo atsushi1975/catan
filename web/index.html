@@ -24,13 +24,13 @@
   cursor:pointer;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,.5);">初期化（ロビーに戻す）</button>
 <script src="game.js"></script>
 <script>
-  // 監視画面: 全情報を表示（トークン無し・閲覧のみ）。
+  // 監視画面: 全情報を表示（トークン無し・既定は閲覧のみ）。
   // 操作はプレイヤー画面（/）から行います。
   //
   // ?debug=1 で操作を有効化できますが、それはサーバーが許可したときだけです。
-  // サーバーは /env で「ローカル（loopback）か」を返し、ネットワーク越し
-  // （Tailscale 等）のアクセスでは debug_allowed=false になるため、外部からは
-  // ?debug=1 を付けても操作は有効になりません。
+  // サーバーは /env で「ホットシートモード（CATAN_HOTSEAT=1）か」を返し、
+  // 無効なら debug_allowed=false になるため、?debug=1 を付けても
+  // 操作は有効になりません（IP では判定しません）。
   (async function () {
     const params = new URLSearchParams(location.search);
     const wantsDebug = params.get('debug') === '1';
@@ -40,7 +40,7 @@
       allowed = !!env.debug_allowed;
     } catch (e) { allowed = false; }
     if (wantsDebug && !allowed) {
-      console.warn('この接続元では ?debug=1 は使えません（閲覧のみ）。');
+      console.warn('この接続元では ?debug=1 は使えません（閲覧のみ）。CATAN_HOTSEAT=1 で起動すると有効になります。');
     }
     CatanGame.boot({ mode: 'monitor', readonly: !(wantsDebug && allowed) });
   })();

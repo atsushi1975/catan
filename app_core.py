@@ -19,34 +19,18 @@ from game.cards import DevCardType
 WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
 
 # ---------------------------------------------------------------------------
-# Remote access / safety
-#   The game is meant to be reached over a private network (Tailscale). The
-#   only "power user" switch is /monitor?debug=1, which turns the view-only
-#   monitor into a full-control hot-seat screen. It must NOT be available to
-#   anyone coming in over the network, so it is limited to loopback by default.
+# Hot-seat mode (explicit opt-in)
+#   Token-less actions (the /monitor?debug=1 controls and local hot-seat play)
+#   are DISABLED by default. They work only when the operator explicitly sets
+#   CATAN_HOTSEAT=1. This is never derived from the client address: a reverse
+#   proxy or a spoofed X-Forwarded-For header must not grant game control.
 #
-#   Override with CATAN_DEBUG_CIDRS="127.0.0.0/8,100.64.0.0/10" if you ever
-#   want to allow it from the Tailscale range too.
+#   Do NOT enable this on a publicly reachable deployment.
 # ---------------------------------------------------------------------------
-def _debug_cidrs():
-    raw = os.environ.get("CATAN_DEBUG_CIDRS", "127.0.0.0/8,::1/128")
-    return [c.strip() for c in raw.split(",") if c.strip()]
-
-
-def _ip_in_cidr(ip, cidr):
-    import ipaddress
-    try:
-        addr = ipaddress.ip_address(ip)
-        if "/" in cidr:
-            return addr in ipaddress.ip_network(cidr, strict=False)
-        return addr == ipaddress.ip_address(cidr)
-    except ValueError:
-        return False
-
-
-def _debug_allowed(ip):
-    """True only for the configured (default: local) addresses."""
-    return any(_ip_in_cidr(ip, c) for c in _debug_cidrs())
+def _hotseat_enabled():
+    """True only when CATAN_HOTSEAT is explicitly switched on."""
+    return os.environ.get("CATAN_HOTSEAT", "").strip().lower() in (
+        "1", "true", "yes", "on")
 
 
 def _lobby_url():
@@ -169,21 +153,21 @@ def token_to_pid(token):
     return None
 
 
-def _resolve_viewer(token, client_ip, view=None):
+def _resolve_viewer(token, view=None):
     """Decide what a /state caller is allowed to see.
 
     * a valid token  -> that player's pid (their own private view)
     * no / bad token -> SPECTATOR_VIEW (public info only)
-    * a LOCAL monitor page (view=monitor from loopback) -> DEBUG_VIEW
+    * view=monitor while CATAN_HOTSEAT=1 -> DEBUG_VIEW
 
-    The debug view is only ever handed out for the monitor page on a trusted
-    (default: loopback) address, so neither a remote visitor nor a token-less
-    player page can read hands or hidden victory points.
+    The debug view is never granted from the client address. It requires the
+    explicit hot-seat switch, so a public deployment (or a spoofed
+    X-Forwarded-For) can never read hands or hidden victory points.
     """
     pid = token_to_pid(token)
     if pid is not None:
         return pid
-    if view == 'monitor' and _debug_allowed(client_ip):
+    if view == 'monitor' and _hotseat_enabled():
         return DEBUG_VIEW
     return SPECTATOR_VIEW
 
@@ -424,15 +408,16 @@ def serialize_room(token=None):
 #   viewer == 'spectator'     -> public information only (no token / bad token,
 #                                or a remote monitor). Anyone can get this, so it
 #                                must never leak hands or hidden victory points.
-#   viewer == 'debug'         -> everything visible. Only ever produced for a
-#                                LOCAL monitor (loopback), see route_get().
+#   viewer == 'debug'         -> everything visible. Only ever produced for
+#                                the monitor when CATAN_HOTSEAT=1, see
+#                                route_get().
 # ---------------------------------------------------------------------------
 DEBUG_VIEW = "debug"
 SPECTATOR_VIEW = "spectator"
 
 
 def _viewer_sees_all(viewer):
-    """True when this view is the unrestricted (hot-seat / local monitor) one."""
+    """True when this view is the unrestricted (hot-seat monitor) one."""
     return viewer is None or viewer == DEBUG_VIEW
 
 
@@ -634,7 +619,7 @@ CURRENT_ONLY = {
 }
 
 
-def handle_lobby(action, payload, local=True):
+def handle_lobby(action, payload):
     token = payload.get("token") or ""
     if action == "join":
         with LOCK:
@@ -767,10 +752,12 @@ def handle_lobby(action, payload, local=True):
             _evaluate_exit_request()
             return {"ok": True}
     if action == "room_reset":
-        # Dev/monitor reset of the whole room. Refused for remote callers: a
-        # forwarded link must never be able to wipe a running game.
-        if not local:
-            return {"ok": False, "error": "この操作は外部からは行えません"}
+        # Dev/monitor reset of the whole room. Only available in explicitly
+        # enabled hot-seat mode: a public deployment must never expose a
+        # request that wipes a running game.
+        if not _hotseat_enabled():
+            return {"ok": False,
+                    "error": "この操作はホットシートモード（CATAN_HOTSEAT=1）でのみ行えます"}
         reset_room()
         return {"ok": True}
     if action == "room_pick":
@@ -1017,15 +1004,19 @@ def _notice_view():
     return None
 
 
-def handle_action(action, payload, actor, local=True):
+def handle_action(action, payload, actor):
     """Returns the response dict, or None if the action is unknown.
 
-    `local` is True only for requests from a trusted (default: local) address.
-    The monitor-only power actions (init/new/auto_setup/give_resources) are
-    refused for remote clients so a forwarded URL alone cannot take over a game.
+    Token-less requests (actor is None) are refused unless the operator enabled
+    the explicit hot-seat switch (CATAN_HOTSEAT=1). The client address is never
+    used for authorization, so a proxy / X-Forwarded-For cannot grant control.
+    The monitor-only power actions are only reachable in that same mode.
     """
-    if not local and action in ("room_init", "monitor_new", "auto_setup", "give_resources"):
-        return {"ok": False, "error": "この操作は外部からは行えません"}
+    if actor is None and not _hotseat_enabled():
+        return {"ok": False,
+                "error": "この操作はホットシートモード（CATAN_HOTSEAT=1）でのみ行えます"}
+    if actor is not None and action in ("room_init", "monitor_new", "auto_setup", "give_resources"):
+        return {"ok": False, "error": "monitor only"}
     if action == "room_init":
         # Monitor-only: finish/abort the current game and return everyone to the
         # lobby. Seats (names + tokens) are kept so players only need to re-roll;
@@ -1065,14 +1056,10 @@ def handle_action(action, payload, actor, local=True):
     e_list = list(b.edges.keys())
 
     # authorization
-    #   * A request with no valid token (actor is None) is only allowed to act
-    #     when it comes from a trusted/local address (the hot-seat monitor used
-    #     for local play and the automated tests). A remote tokenless request
-    #     must not be able to drive the game at all.
+    #   * A token-less request (actor is None) was already accepted above only
+    #     in explicit hot-seat mode; it is not tied to the client address.
     #   * A real client (actor is a pid) may only act on its own turn / its own
     #     discard / its own trade response.
-    if actor is None and not local:
-        return {"ok": False, "error": "この操作は外部からは行えません"}
     if actor is not None and action in CURRENT_ONLY and actor != g.current_player_idx:
         return {"ok": False, "error": "not your turn"}
     if actor is not None and action == "discard" and actor != payload.get("player"):
@@ -1205,11 +1192,11 @@ ICON_FILES = {'favicon.svg', 'favicon.ico', 'apple-touch-icon.png',
               'icon-192.png', 'icon-512.png', 'manifest.json'}
 
 
-def route_get(path, query, client_ip):
+def route_get(path, query):
     """Handle a GET. Returns (status, content_type, body_bytes).
 
-    `query` is a dict of str -> list[str] (like parse_qs). `client_ip` is the
-    caller's address (used only for the /env debug gate).
+    `query` is a dict of str -> list[str] (like parse_qs). The caller's address
+    is deliberately NOT part of the request: it must never affect authorization.
     """
     token = (query.get('token') or [None])[0]
 
@@ -1243,7 +1230,7 @@ def route_get(path, query, client_ip):
             body = json.dumps(serialize_room(token)).encode()
         return (200, 'application/json; charset=utf-8', body)
     if path == '/env':
-        body = json.dumps({'debug_allowed': _debug_allowed(client_ip),
+        body = json.dumps({'debug_allowed': _hotseat_enabled(),
                            'lobby_url': _lobby_url(),
                            'pid': os.getpid(),
                            'owner_pid': OWNER_PID}).encode()
@@ -1259,7 +1246,7 @@ def route_get(path, query, client_ip):
                     data['notice'] = notice
                 body = json.dumps(data).encode()
                 return (200, 'application/json; charset=utf-8', body)
-            viewer = _resolve_viewer(token, client_ip, (query.get('view') or [None])[0])
+            viewer = _resolve_viewer(token, (query.get('view') or [None])[0])
             data = serialize(g, viewer)
             if notice:
                 data['notice'] = notice
@@ -1289,19 +1276,18 @@ def _file_response(rel_name):
     return (200, _content_type_for(safe), data)
 
 
-def route_post(payload, query, client_ip):
+def route_post(payload, query):
     """Handle a POST. `payload` is the parsed JSON body (dict). Returns a dict."""
     token = payload.get('token') or (query.get('token') or [None])[0]
     action = payload.get('action')
-    local = _debug_allowed(client_ip)
     try:
         with LOCK:
             _housekeeping(token)
-            lobby_res = handle_lobby(action, payload, local=local)
+            lobby_res = handle_lobby(action, payload)
             if lobby_res is not None:
                 return lobby_res
             actor = token_to_pid(token)
-            action_res = handle_action(action, payload, actor, local=local)
+            action_res = handle_action(action, payload, actor)
             if action_res is not None:
                 return action_res
             return {'ok': False, 'error': 'unknown action'}

@@ -12,10 +12,11 @@ Two problems were found by testing against a running server:
      the per-turn checks were guarded by `actor is not None`.
 
 Fix:
-  * /state now resolves THREE views: a real pid, 'spectator' (public only) or
-    'debug' (everything - only ever handed out to a LOCAL monitor).
-  * handle_action(actor=None, local=False) refuses every game action; a token-
-    less request is only allowed when it comes from a trusted/local address.
+  * /state resolves THREE views: a real pid, 'spectator' (public only) or
+    'debug' (everything - only while CATAN_HOTSEAT=1).
+  * handle_action(actor=None) refuses every game action unless the operator
+    explicitly set CATAN_HOTSEAT=1. The client address / X-Forwarded-For is
+    never used for authorization.
 
 These checks are done at the app_core level (no HTTP needed) so they describe
 the contract directly.
@@ -39,9 +40,19 @@ def check(cond, msg):
 SECRET_KEYS = ("resources", "dev_cards", "new_dev_cards", "hidden_vp")
 
 
+def set_hotseat(on):
+    """Turn the explicit token-less (hot-seat) switch on/off for one check."""
+    if on:
+        os.environ["CATAN_HOTSEAT"] = "1"
+    else:
+        os.environ.pop("CATAN_HOTSEAT", None)
+
+
 def fresh_started_room():
     """Two joined players, drafted, game started - using the public API only."""
+    set_hotseat(True)
     handle_lobby("room_reset", {})
+    set_hotseat(False)
     a = handle_lobby("join", {"name": "アリス"})
     b = handle_lobby("join", {"name": "ボブ"})
     ta, tb = a["token"], b["token"]
@@ -70,15 +81,17 @@ def fresh_started_room():
 
 def finish_setup(g):
     """Run the initial placement locally so the game reaches the roll phase."""
-    handle_action("auto_setup", {}, None, local=True)
+    set_hotseat(True)
+    handle_action("auto_setup", {}, None)
+    set_hotseat(False)
 
 
-def state_players(token, ip, view=None):
+def state_players(token, view=None):
     """Read /state through route_get (so the real viewer resolution runs)."""
     q = {"token": [token]} if token else {}
     if view:
         q["view"] = [view]
-    status, ctype, body = route_get("/state", q, ip)
+    status, ctype, body = route_get("/state", q)
     import json
     return json.loads(body)
 
@@ -89,26 +102,23 @@ def state_players(token, ip, view=None):
 ta, tb, g = fresh_started_room()
 g.players[0].new_dev_cards = ["victory_point"]
 
-REMOTE = "203.0.113.7"    # not a trusted address
-LOCAL = "127.0.0.1"       # trusted (default CATAN_DEBUG_CIDRS)
-
-# --- remote, no token -> spectator, nothing secret --------------------------
-st = state_players(None, REMOTE)
-check(st.get("role") == SPECTATOR_VIEW, "remote no-token: role is spectator")
-check(st.get("you") is None, "remote no-token: you is null")
+# --- no token / bogus token -> spectator, nothing secret --------------------
+set_hotseat(False)
+st = state_players(None)
+check(st.get("role") == SPECTATOR_VIEW, "no-token: role is spectator")
+check(st.get("you") is None, "no-token: you is null")
 for p in st["players"]:
     for k in SECRET_KEYS:
-        check(k not in p, f"remote no-token: no '{k}' for P{p['id']}")
+        check(k not in p, f"no-token: no '{k}' for P{p['id']}")
 
-# --- remote, bogus token -> spectator, nothing secret -----------------------
-st = state_players("totally-made-up", REMOTE)
-check(st.get("role") == SPECTATOR_VIEW, "remote bad-token: role is spectator")
+st = state_players("totally-made-up")
+check(st.get("role") == SPECTATOR_VIEW, "bad-token: role is spectator")
 for p in st["players"]:
     for k in SECRET_KEYS:
-        check(k not in p, f"remote bad-token: no '{k}' for P{p['id']}")
+        check(k not in p, f"bad-token: no '{k}' for P{p['id']}")
 
 # --- a real token still gets that player's own private view -----------------
-st = state_players(ta, REMOTE)
+st = state_players(ta)
 me = next(p for p in st["players"] if p["id"] == st["you"])
 others = [p for p in st["players"] if p["id"] != st["you"]]
 check(st.get("role") == "player", "valid token: role is player")
@@ -117,77 +127,84 @@ check(all(k in me for k in ("resources", "dev_cards", "hidden_vp")),
 check(all(("resources" not in p and "hidden_vp" not in p) for p in others),
       "valid token: other players' secrets still hidden")
 
-# --- the local monitor keeps its full view (view=monitor) -------------------
-st = state_players(None, LOCAL, view="monitor")
-check(st.get("role") == DEBUG_VIEW, "local monitor (view=monitor): role is debug")
-for p in st["players"]:
-    check(all(k in p for k in ("resources", "dev_cards", "hidden_vp")),
-          f"local monitor: full view for P{p['id']}")
-
-# a local request WITHOUT view=monitor is NOT the monitor: public only
-st = state_players(None, LOCAL)
+# --- monitor view is gated by the explicit switch, never by the address -----
+st = state_players(None, view="monitor")
 check(st.get("role") == SPECTATOR_VIEW,
-      "local page without view=monitor is a spectator (no upgrade by IP)")
+      "view=monitor is a spectator while hot-seat is off")
 for p in st["players"]:
     check("resources" not in p and "hidden_vp" not in p,
-          f"local non-monitor: no secrets for P{p['id']}")
+          f"monitor view (off): no secrets for P{p['id']}")
 
-# a REMOTE request asking for view=monitor is refused the full view
-st = state_players(None, REMOTE, view="monitor")
-check(st.get("role") == SPECTATOR_VIEW, "remote view=monitor is still a spectator")
+set_hotseat(True)
+st = state_players(None, view="monitor")
+check(st.get("role") == DEBUG_VIEW, "view=monitor is debug with CATAN_HOTSEAT=1")
+for p in st["players"]:
+    check(all(k in p for k in ("resources", "dev_cards", "hidden_vp")),
+          f"monitor view (on): full view for P{p['id']}")
+set_hotseat(False)
+
+# a player page never gets the monitor view just by asking for it
+st = state_players(ta, view="monitor")
+check(st.get("role") == "player", "a valid player token stays a player view")
 
 
 # ===========================================================================
-# 段階2: token-less /action must be refused for remote callers
+# 段階2: token-less /action must be refused unless CATAN_HOTSEAT=1
 # ===========================================================================
 ta, tb, g = fresh_started_room()
+set_hotseat(False)
 cur = g.current_player_idx
 
-# every player-turn action, remotely, with no token
+# every player-turn action, with no token and the switch off
 for act in ("roll", "end_turn", "buy_dev"):
-    r = handle_action(act, {}, None, local=False)
-    check(r and r.get("ok") is False and "外部" in r.get("error", ""),
-          f"remote no-token: {act} refused")
+    r = handle_action(act, {}, None)
+    check(r and r.get("ok") is False and "ホットシート" in r.get("error", ""),
+          f"no-token (off): {act} refused")
 
 # build_settlement: the original exploit - must NOT change the game
 before = g.current_player().settlements_left
-r = handle_action("build_settlement", {"vertex": 0}, None, local=False)
+r = handle_action("build_settlement", {"vertex": 0}, None)
 after = g.current_player().settlements_left
-check(r and r.get("ok") is False, "remote no-token: build_settlement refused")
-check(before == after, "remote no-token: build_settlement did not change the game")
+check(r and r.get("ok") is False, "no-token (off): build_settlement refused")
+check(before == after, "no-token (off): build_settlement did not change the game")
 
 # discard / trade_respond
-r = handle_action("discard", {"player": cur, "resources": {}}, None, local=False)
-check(r and r.get("ok") is False, "remote no-token: discard refused")
-r = handle_action("trade_respond", {"player": cur, "accept": True}, None, local=False)
-check(r and r.get("ok") is False, "remote no-token: trade_respond refused")
+r = handle_action("discard", {"player": cur, "resources": {}}, None)
+check(r and r.get("ok") is False, "no-token (off): discard refused")
+r = handle_action("trade_respond", {"player": cur, "accept": True}, None)
+check(r and r.get("ok") is False, "no-token (off): trade_respond refused")
 
 # the monitor-only helpers are refused too
 for act in ("room_init", "monitor_new", "auto_setup", "give_resources"):
-    r = handle_action(act, {}, None, local=False)
-    check(r and r.get("ok") is False, f"remote no-token: {act} refused")
+    r = handle_action(act, {}, None)
+    check(r and r.get("ok") is False, f"no-token (off): {act} refused")
 
-# --- locally, a token-less (hot-seat) request may still act ------------------
+# --- with the explicit switch on, a token-less hot-seat request may act -----
 finish_setup(g)
-r = handle_action("roll", {}, None, local=True)
-check(r and r.get("ok") is True, "local no-token: hot-seat roll still works")
+set_hotseat(True)
+r = handle_action("roll", {}, None)
+check(r and r.get("ok") is True, "hot-seat on: token-less roll works")
+set_hotseat(False)
 
-# --- a remote request WITH a valid token plays normally ---------------------
+# --- a token WITH a valid token plays normally ------------------------------
 ta2, tb2, g2 = fresh_started_room()
 finish_setup(g2)
+set_hotseat(False)
 cur2 = g2.current_player_idx
-r = handle_action("roll", {}, cur2, local=False)
-check(r and r.get("ok") is True, "remote valid token: current player may roll")
+r = handle_action("roll", {}, cur2)
+check(r and r.get("ok") is True, "valid token: current player may roll")
 
 # and that same valid token can't act out of turn
 nxt = (cur2 + 1) % len(g2.players)
-r = handle_action("roll", {}, nxt, local=False)
-check(r and r.get("ok") is False, "remote valid token: out-of-turn roll refused")
+r = handle_action("roll", {}, nxt)
+check(r and r.get("ok") is False, "valid token: out-of-turn roll refused")
 
 # ===========================================================================
-# route_post end-to-end (token in the JSON body, remote IP)
+# route_post end-to-end (token in the JSON body; no client address involved)
 # ===========================================================================
+set_hotseat(True)
 handle_lobby("room_reset", {})
+set_hotseat(False)
 a = handle_lobby("join", {"name": "x"})
 b = handle_lobby("join", {"name": "y"})
 for key, val in (("desert", "center"), ("numbers", "official"), ("victory", 10)):
@@ -203,24 +220,31 @@ handle_lobby("room_pick", {"token": toks[order[1]], "slot": 2})
 handle_lobby("room_color", {"token": toks[order[1]], "color": "blue"})
 handle_lobby("room_start", {"token": a["token"]})
 
-r = route_post({"action": "give_resources"}, {}, REMOTE)
-check(r.get("ok") is False, "route_post: remote tokenless give_resources refused")
-r = route_post({"action": "give_resources"}, {}, LOCAL)
-check(r.get("ok") is True, "route_post: local tokenless give_resources allowed")
+set_hotseat(False)
+r = route_post({"action": "give_resources"}, {})
+check(r.get("ok") is False, "route_post: tokenless give_resources refused when off")
+set_hotseat(True)
+r = route_post({"action": "give_resources"}, {})
+check(r.get("ok") is True, "route_post: tokenless give_resources allowed when on")
+set_hotseat(False)
 
-# --- lobby power actions from a remote caller ------------------------------
+# --- lobby power actions without a seat ------------------------------------
 # A forwarded link must not be able to wipe / hijack the room.
+set_hotseat(True)
 handle_lobby("room_reset", {})
+set_hotseat(False)
 pa = handle_lobby("join", {"name": "p"})
 pb = handle_lobby("join", {"name": "q"})
-r = route_post({"action": "room_reset"}, {}, REMOTE)
-check(r.get("ok") is False, "route_post: remote room_reset refused")
-check(len(ROOM["seats"]) == 2, "remote room_reset did not wipe the room")
-r = route_post({"action": "room_setting", "key": "desert", "value": "center"}, {}, REMOTE)
-check(r.get("ok") is False, "route_post: remote room_setting refused")
-r = route_post({"action": "room_start"}, {}, REMOTE)
-check(r.get("ok") is False, "route_post: remote room_start refused")
+r = route_post({"action": "room_reset"}, {})
+check(r.get("ok") is False, "route_post: tokenless room_reset refused when off")
+check(len(ROOM["seats"]) == 2, "refused room_reset did not wipe the room")
+r = route_post({"action": "room_setting", "key": "desert", "value": "center"}, {})
+check(r.get("ok") is False, "route_post: room_setting without a seat refused")
+r = route_post({"action": "room_start"}, {})
+check(r.get("ok") is False, "route_post: room_start without a seat refused")
+set_hotseat(True)
 handle_lobby("room_reset", {})   # leave the room clean
+set_hotseat(False)
 
 print()
 print("AUTHZ TEST OK" if fails == 0 else "AUTHZ TEST FAILED (%d)" % fails)
