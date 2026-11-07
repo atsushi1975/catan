@@ -288,32 +288,19 @@ button.qty-step {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 2px 8px;
-  border-radius: 999px;
-  font-size: 12px;
+  box-sizing: border-box;
+  min-width: 44px;
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  font-size: 14px;
   font-weight: bold;
-  line-height: 1.4;
+  line-height: 1;
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
-
-.trade-badge.r2 {
-  background: #f9a825;
-  color: #222;
-}
-
-.trade-badge.r3 {
-  background: #1e88e5;
-  color: #fff;
-}
-
-.trade-badge.r4 {
-  background: #555;
-  color: #eee;
-}
-
-@media screen and (max-width: 480px) {
-    #trade-panel .trade-row { display: flex; align-items: center; gap: 4px; }
-    #trade-panel .trade-row .trade-badge { padding: 1px 4px; font-size: 11px; }
-    #trade-panel .trade-row .trade-possess { display: none; }
-}
+.trade-badge.r2 { background: #f9a825; color: #222; }
+.trade-badge.r3 { background: #1e88e5; color: #fff; }
+.trade-badge.r4 { background: #555; color: #eee; }
 

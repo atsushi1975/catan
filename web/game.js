@@ -2399,7 +2399,7 @@ function updateTradeUI(me) {
   const ratio = (state.trade_ratios && state.trade_ratios[g]) || 4;
   const currentPossess = (me && me.resources) ? (me.resources[g] || 0) : 0;
   const ratioEl = document.getElementById('trade-ratio');
-  ratioEl.innerHTML = `<span class="trade-badge r${ratio}" title="交換レート ${ratio}:1">${ratio}:1</span><span class="trade-possess">（所持 ${currentPossess} 資源）</span>`;
+  ratioEl.innerHTML = `<span class="trade-badge r${ratio}" title="交換レート ${ratio}:1">${ratio}:1</span><span class="trade-possess">（所持 ${currentPossess} ${resName(g)}）</span>`;
 }
 
 // Monopoly / Year of Plenty: pick the resource(s) from a dropdown instead of
