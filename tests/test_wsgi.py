@@ -6,7 +6,7 @@ needing a running HTTP server. State is in-process, so we drive one room here.
 """
 import io, json, os, sys
 
-sys.path.insert(0, "/home/atsushi/Arduino/test/catan")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from wsgiref.util import setup_testing_defaults
 import wsgi as appmod
 

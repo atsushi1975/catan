@@ -145,6 +145,14 @@ HEX マスは地形ごとの**手続き型テクスチャ**（木・土・羊・
 
 ## テスト
 
+追加依存なし（標準ライブラリのみ）。全テストをまとめて実行します。
+
+```bash
+for t in tests/test_*.py; do python3 "$t" || exit 1; done
+```
+
+個別に実行する場合:
+
 ```bash
 python3 tests/test_basic.py
 python3 tests/test_build.py
@@ -155,6 +163,10 @@ python3 tests/test_authz.py       # トークンなし/不正アクセスの拒�
 python3 tests/test_house_rules.py # ハウスルール（初期砂漠）
 python3 tests/test_wsgi.py        # WSGI (PythonAnywhere) 経由の E2E
 ```
+
+GitHub Actions（`.github/workflows/test.yml`）が pull request と `main` への push で
+Python 3.10 / 3.12 の全テストを実行します。`main` への push では、このテストが
+通った場合のみ VPS へデプロイされます（`.github/workflows/deploy.yml`）。
 
 ## 構成
 

@@ -6,7 +6,13 @@ on:
       - main  # mainブランチにプッシュされたら連動
 
 jobs:
+  # Test gate: the deploy job only runs when every test passes.
+  # The test workflow is shared with pull requests (.github/workflows/test.yml).
+  test:
+    uses: ./.github/workflows/test.yml
+
   deploy:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - name: SSH and Remote Command Execution
@@ -20,4 +26,3 @@ jobs:
             cd ~/docker
             # 2（git pull）を飛ばして、直接ビルド・コンテナの入れ替えだけ行う
             docker compose up -d --build catan001 catan002
-

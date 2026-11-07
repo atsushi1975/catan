@@ -321,7 +321,7 @@ Phase 3 完了 — Pythonバックエンド + Canvas フロントエンド + PWA
 - `token` から `actor`（pid）を解決。クライアントは **自分の手番のみ** 操作可能（`CURRENT_ONLY` 集合）。
 - `discard` は自分の捨て札のみ、`trade_respond`/`trade_cancel` は自分のみ。
 - `give_resources`・`auto_setup`・`monitor_new` は監視（token無し）専用。
-- 監視／ホットシート（token無し）は従来どおり全操作可（自動テスト互換）。
+- トークンなし（監視／ホットシート）の操作は既定で拒否。`CATAN_HOTSEAT=1` のときのみ許可（自動テスト互換）。
 
 ### 実装メモ
 - `player.py`: 使用済み発展カードの公開ログ `used_dev_cards` を追加（`play_dev_card` で追記）。
@@ -677,3 +677,10 @@ v27 の後に「ブラウザを完全終了 → 起動」で復帰できない�
 ## バージョン履歴
 - `web/client.html`: `VERSION = 'v58'`（診断行・ビルド確認用）
 - `node --check web/game.js` で構文確認済み。
+
+## CI: テストとデプロイゲート
+- `.github/workflows/test.yml`: pull request・手動実行・再利用呼び出しで全テストを実行（Python 3.10 / 3.12）。
+  `python -m py_compile *.py tests/*.py` の後に `tests/test_*.py` を順に実行する（追加依存なし）。
+- `.github/workflows/deploy.yml`: `main` への push 時に `test` ワークフローを `uses:` で呼び、
+  成功した場合のみ `deploy`（Sakura VPS へ SSH）を実行する（`needs: test`）。
+- `tests/test_wsgi.py` の `sys.path` は絶対パスをやめ、`__file__` からの相対指定に統一。
