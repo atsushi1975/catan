@@ -773,16 +773,23 @@ class Game:
             "from": p.id, "give": give, "want": want,
             "targets": tlist, "declined": [],
         }
+        for t in tlist:
+            self.add_private_event(t, f"{p.name}から交易の依頼が届きました", "trade_offer")
         return True
 
     def cancel_trade_offer(self, player_id=None):
         """The proposer withdraws the open offer."""
         if not self.trade_offer:
             return False
+        offer = self.trade_offer
         pid = self.current_player_idx if player_id is None else int(player_id)
-        if self.trade_offer["from"] != pid:
+        if offer["from"] != pid:
             return False
         self.trade_offer = None
+        self.add_private_event(pid, "交易は不成立（自分がキャンセル）", "trade_fail")
+        for t in offer["targets"]:
+            if t != pid and t not in offer["declined"]:
+                self.add_private_event(t, "交易は不成立（相手がキャンセル）", "trade_fail")
         return True
 
     def respond_trade(self, player_id, accept):
@@ -804,6 +811,7 @@ class Game:
             offer["declined"].append(pid)
             if set(offer["declined"]) >= set(offer["targets"]):
                 self.trade_offer = None
+                self.add_private_event(offer["from"], "交易は不成立（全員が断った）", "trade_fail")
             return True
         responder = self.players[pid]
         for rt, amt in offer["want"].items():
@@ -821,6 +829,11 @@ class Game:
             responder.resources[rt] -= amt
             proposer.resources[rt] += amt
         self.trade_offer = None
+        self.add_private_event(proposer.id, f"{responder.name}と交易が成立しました", "trade_ok")
+        self.add_private_event(responder.id, f"{proposer.name}と交易が成立しました", "trade_ok")
+        for t in offer["targets"]:
+            if t != responder.id and t not in offer["declined"]:
+                self.add_private_event(t, "交易は不成立（別の人と成立）", "trade_fail")
         return True
 
     def status(self):

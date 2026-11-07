@@ -261,6 +261,14 @@ button.qty-step {
 .toast.kind-knight, .toast.kind-robber { border-color: #ff8a65; }
 .toast.kind-seven { border-color: #ffb74d; }
 .toast.kind-win { border-color: #ffd54f; color: #ffd54f; font-weight: bold; }
+.toast.kind-trade_offer { border-color: #64b5f6; }
+.toast.kind-trade_ok { border-color: #81c784; }
+.toast.kind-trade_fail { border-color: #ff8a65; }
+/* Trade notices are private events (they also carry .private), so match the
+   higher specificity to keep their kind colour instead of the purple edge. */
+.toast.private.kind-trade_offer { border-color: #64b5f6; }
+.toast.private.kind-trade_ok { border-color: #81c784; }
+.toast.private.kind-trade_fail { border-color: #ff8a65; }
 .toast.private { border-color: #ba68c8; color: #f3d9fa; }
 .toast.kind-mine { border-color: #4caf50; color: #c8f7c5; font-weight: bold; }
 
