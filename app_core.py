@@ -107,6 +107,88 @@ def _free_color(seats):
 LOCK = threading.RLock()
 
 # ---------------------------------------------------------------------------
+# Rate limiting (abuse mitigation, NOT authorization)
+#   A simple per-client-IP token bucket. The address is used ONLY here; it must
+#   never grant or deny access to game actions (see _hotseat_enabled above).
+#   Defaults: join 5/min and any /action 120/min. Set CATAN_RATE_LIMIT=0 to
+#   turn the whole thing off (useful for tests and private installs).
+#
+#   The bucket state is per process, like the room itself, so run one worker.
+# ---------------------------------------------------------------------------
+JOIN_PER_MIN = 5
+ACTION_PER_MIN = 120
+RATE_WINDOW_SECONDS = 60.0
+RATE_IDLE_SECONDS = 600.0     # forget a bucket that has been idle this long
+RATE_MAX_BUCKETS = 4096       # hard cap on tracked (IP, scope) pairs
+RATE_LIMIT_ERROR = "リクエストが多すぎます。しばらく待ってから再試行してください"
+
+_RATE_LOCK = threading.Lock()
+_rate_buckets = {}            # (ip, scope) -> (tokens, last_seen)
+
+
+def rate_limit_enabled():
+    """Rate limiting is on unless explicitly disabled."""
+    return os.environ.get("CATAN_RATE_LIMIT", "1").strip().lower() not in (
+        "0", "false", "no", "off")
+
+
+def _rate_now():
+    return time.monotonic()
+
+
+def _rate_prune(now):
+    """Keep the bucket table bounded when many addresses are seen."""
+    if len(_rate_buckets) < RATE_MAX_BUCKETS:
+        return
+    cutoff = now - RATE_IDLE_SECONDS
+    for key, (_, last) in list(_rate_buckets.items()):
+        if last < cutoff:
+            del _rate_buckets[key]
+    if len(_rate_buckets) >= RATE_MAX_BUCKETS:
+        # Still full: drop the least recently used quarter (a reset of the
+        # limiter state is less harmful than unbounded memory use).
+        drop = max(1, len(_rate_buckets) // 4)
+        for key, _ in sorted(_rate_buckets.items(), key=lambda kv: kv[1][1])[:drop]:
+            del _rate_buckets[key]
+
+
+def check_rate_limit(client_ip, action):
+    """Return retry-after seconds when the request must be refused, else None.
+
+    One bucket per (IP, scope). "join" has a small bucket of its own; every
+    POST also draws from the general "action" bucket. A missing address means
+    "unknown client", so the limiter is skipped (the HTTP adapters always
+    provide one).
+    """
+    if not client_ip or not rate_limit_enabled():
+        return None
+    scopes = ["action"]
+    if action == "join":
+        scopes.append("join")
+    capacities = {"action": float(ACTION_PER_MIN), "join": float(JOIN_PER_MIN)}
+    now = _rate_now()
+    with _RATE_LOCK:
+        _rate_prune(now)
+        states = []
+        for scope in scopes:
+            capacity = capacities[scope]
+            refill = capacity / RATE_WINDOW_SECONDS
+            key = (client_ip, scope)
+            tokens, last = _rate_buckets.get(key, (capacity, now))
+            tokens = min(capacity, tokens + max(0.0, now - last) * refill)
+            states.append((key, tokens, refill))
+        wait = 0.0
+        for _, tokens, refill in states:
+            if tokens < 1.0:                 # whole requests only
+                wait = max(wait, (1.0 - tokens) / refill)
+        if wait > 0:
+            return max(1, int(math.ceil(wait)))
+        for key, tokens, _ in states:
+            _rate_buckets[key] = (tokens - 1.0, now)
+        return None
+
+
+# ---------------------------------------------------------------------------
 # Single-process guard
 #   The room lives in this process's memory, so the whole app MUST run in one
 #   worker process. On shared hosts (e.g. PythonAnywhere) it is easy to end up
@@ -1276,10 +1358,18 @@ def _file_response(rel_name):
     return (200, _content_type_for(safe), data)
 
 
-def route_post(payload, query):
-    """Handle a POST. `payload` is the parsed JSON body (dict). Returns a dict."""
+def route_post(payload, query, client_ip=None):
+    """Handle a POST. `payload` is the parsed JSON body (dict). Returns a dict.
+
+    `client_ip` is used ONLY for rate limiting (never for authorization). The
+    HTTP adapters pass the caller's address; passing None skips the limiter.
+    """
     token = payload.get('token') or (query.get('token') or [None])[0]
     action = payload.get('action')
+    retry_after = check_rate_limit(client_ip, action)
+    if retry_after is not None:
+        return {'ok': False, 'rate_limited': True, 'retry_after': retry_after,
+                'error': RATE_LIMIT_ERROR}
     try:
         with LOCK:
             _housekeeping(token)

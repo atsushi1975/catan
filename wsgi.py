@@ -39,6 +39,21 @@ app_core.ensure_started()
 from urllib.parse import parse_qs
 
 
+def _client_ip(environ):
+    """Caller address used ONLY for rate limiting (never for authorization).
+
+    A reverse proxy (PythonAnywhere, nginx, ...) appends the real peer to
+    X-Forwarded-For, so the LAST hop is used. Anything the client put in front
+    of it is ignored. Falls back to REMOTE_ADDR when there is no proxy header.
+    """
+    fwd = environ.get("HTTP_X_FORWARDED_FOR", "")
+    if fwd:
+        hops = [h.strip() for h in fwd.split(",") if h.strip()]
+        if hops:
+            return hops[-1]
+    return environ.get("REMOTE_ADDR", "")
+
+
 def application(environ, start_response):
     method = environ.get('REQUEST_METHOD', 'GET').upper()
     path = environ.get('PATH_INFO', '/') or '/'
@@ -68,8 +83,15 @@ def application(environ, start_response):
             payload = json.loads(raw)
         except Exception:
             payload = {}
-        res = route_post(payload, query)
+        res = route_post(payload, query, _client_ip(environ))
         body = json.dumps(res).encode('utf-8')
+        if res.get('rate_limited'):
+            start_response('429 Too Many Requests', [
+                ('Content-Type', 'application/json; charset=utf-8'),
+                ('Content-Length', str(len(body))),
+                ('Retry-After', str(res.get('retry_after', 60))),
+            ])
+            return [body]
         start_response('200 OK', [
             ('Content-Type', 'application/json; charset=utf-8'),
             ('Content-Length', str(len(body))),

@@ -34,15 +34,19 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             payload = {}
         qs = parse_qs(parsed.query)
-        res = route_post(payload, qs)
+        res = route_post(payload, qs, self.client_address[0])
         body = json.dumps(res).encode()
-        self._send(200, "application/json; charset=utf-8", body)
+        limited = bool(res.get("rate_limited"))
+        self._send(429 if limited else 200, "application/json; charset=utf-8",
+                   body, retry_after=res.get("retry_after") if limited else None)
 
-    def _send(self, status, ctype, body):
+    def _send(self, status, ctype, body, retry_after=None):
         self.send_response(status)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", len(body))
         self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+        if retry_after:
+            self.send_header("Retry-After", str(retry_after))
         self.end_headers()
         self.wfile.write(body)
 

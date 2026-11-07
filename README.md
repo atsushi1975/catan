@@ -141,6 +141,15 @@ HEX マスは地形ごとの**手続き型テクスチャ**（木・土・羊・
   ```
 - 監視専用の強力な操作（`初期化` / `新しいゲーム` / `自動配置` / `資源付与`）も、
   `CATAN_HOTSEAT=1` のときだけ許可されます。
+- **レート制限**（IP ごとの簡易トークンバケット）:
+  - `join` は **5 回/分**、`POST /action` 全体で **120 回/分**。
+  - 超過時は HTTP **429** と
+    `{"ok": false, "rate_limited": true, "retry_after": N, "error": "..."}` を返します
+    （`Retry-After` ヘッダー付き）。
+  - 無効化する場合は `CATAN_RATE_LIMIT=0`（テスト・閉域用途）。
+  - ここで使うクライアント IP は**レート制限専用**で、認可には使いません。
+    `wsgi.py` は `X-Forwarded-For` の**末尾**（プロキシが追記したホップ）、
+    `server.py` は接続元アドレスを使います。
 - ポートは `CATAN_PORT` で変更できます（既定 8000）。
 
 ## テスト
@@ -161,6 +170,7 @@ python3 tests/test_vp.py
 python3 tests/test_dev_reveal.py  # 勝敗後の発展カード公開
 python3 tests/test_authz.py       # トークンなし/不正アクセスの拒否
 python3 tests/test_house_rules.py # ハウスルール（初期砂漠）
+python3 tests/test_rate_limit.py  # IP ごとのレート制限
 python3 tests/test_wsgi.py        # WSGI (PythonAnywhere) 経由の E2E
 ```
 
