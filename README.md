@@ -1,5 +1,7 @@
 # カタン（フル版）— スマホ対応 Web 版
 
+> 作者: atsushi1975(Atsushi Sakamoto) / © 2026 All rights reserved([LICENSE](LICENSE))
+
 Python のゲームロジック（フル版カタン）と、ブラウザで遊べる Web UI。
 サーバーは **単一プロセス・メモリ内に状態を持つ** シンプルな構成です（DB なし）。
 
