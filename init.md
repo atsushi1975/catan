@@ -686,10 +686,13 @@ v27 の後に「ブラウザを完全終了 → 起動」で復帰できない�
 - `tests/test_wsgi.py` の `sys.path` は絶対パスをやめ、`__file__` からの相対指定に統一。
 
 ## レート制限（Copilot #3）
-- 公開 URL の参加スパム・連打対策として、IP ごとの簡易トークンバケットを追加。
-  - `join`: 5回/分、`POST /action` 全体: 120回/分。`CATAN_RATE_LIMIT=0` で無効化。
+- 公開 URL の参加スパム・連打対策として、簡易トークンバケットを追加。
+  - `join`: IP ごとに 5回/分（**新規入室のみ**）。`POST /action` 全体: 120回/分。
+    有効な席トークンがある操作は**席ごと**のバケット、トークンなし/不正トークンは IP バケット。
+    同一 NAT でもプレイヤーごとに action 枠を持ち、再入室は join 制限を消費しない。
+  - `CATAN_RATE_LIMIT=0` で無効化。
   - 超過時は HTTP 429 + `{ok:false, rate_limited:true, retry_after:N}`（`Retry-After` ヘッダー付き）。
   - クライアント IP はレート制限のみに使用し、認可（`CATAN_HOTSEAT` 等）とは完全に分離する。
   - `server.py` は接続元アドレス、`wsgi.py` は `X-Forwarded-For` の末尾ホップ（無ければ `REMOTE_ADDR`）を使う。
   - バケットはプロセス内（部屋と同じく単一ワーカー前提）。上限 4096 件・10分アイドルで削除。
-- テスト: `tests/test_rate_limit.py`（join/action の上限、IP 分離、時間経過の回復、無効化、WSGI の IP 解決）。
+- テスト: `tests/test_rate_limit.py`（join/action の上限、IP 分離、席ごとの分離、再入室の除外、時間経過の回復、無効化、WSGI の IP 解決）。

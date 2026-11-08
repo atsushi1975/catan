@@ -108,10 +108,12 @@ LOCK = threading.RLock()
 
 # ---------------------------------------------------------------------------
 # Rate limiting (abuse mitigation, NOT authorization)
-#   A simple per-client-IP token bucket. The address is used ONLY here; it must
-#   never grant or deny access to game actions (see _hotseat_enabled above).
-#   Defaults: join 5/min and any /action 120/min. Set CATAN_RATE_LIMIT=0 to
-#   turn the whole thing off (useful for tests and private installs).
+#   A simple token bucket. The key is the seat token when the request carries
+#   one that belongs to a real seat, otherwise the client IP. The address is
+#   used ONLY here; it must never grant or deny access to game actions (see
+#   _hotseat_enabled above).
+#   Defaults: join 5/min (per IP, new seats only) and any /action 120/min
+#   (per seat when possible). Set CATAN_RATE_LIMIT=0 to turn it off.
 #
 #   The bucket state is per process, like the room itself, so run one worker.
 # ---------------------------------------------------------------------------
@@ -152,28 +154,36 @@ def _rate_prune(now):
             del _rate_buckets[key]
 
 
-def check_rate_limit(client_ip, action):
+def check_rate_limit(client_ip, action, token=None):
     """Return retry-after seconds when the request must be refused, else None.
 
-    One bucket per (IP, scope). "join" has a small bucket of its own; every
-    POST also draws from the general "action" bucket. A missing address means
-    "unknown client", so the limiter is skipped (the HTTP adapters always
-    provide one).
+    The bucket key is the seat token when the request carries one that belongs
+    to a real seat, and the client IP otherwise. That keeps a household / office
+    NAT from sharing one action budget between several players, while new joins
+    (no seat yet) still use the per-IP "join" bucket that stops room spam.
+
+    "join" has a small bucket of its own; every POST also draws from the
+    general "action" bucket. A missing address means "unknown client", so the
+    limiter is skipped (the HTTP adapters always provide one).
     """
     if not client_ip or not rate_limit_enabled():
         return None
-    scopes = ["action"]
-    if action == "join":
-        scopes.append("join")
+    seated = bool(token) and _seat_of(token) is not None
+    action_key = ("seat:" + token) if seated else ("ip:" + client_ip)
+    scopes = [("action", action_key)]
+    if action == "join" and not seated:
+        # Only a NEW seat spends the per-IP join budget; rejoining with the
+        # token already issued to this seat is free (page reloads, reconnects).
+        scopes.append(("join", "ip:" + client_ip))
     capacities = {"action": float(ACTION_PER_MIN), "join": float(JOIN_PER_MIN)}
     now = _rate_now()
     with _RATE_LOCK:
         _rate_prune(now)
         states = []
-        for scope in scopes:
+        for scope, identity in scopes:
             capacity = capacities[scope]
             refill = capacity / RATE_WINDOW_SECONDS
-            key = (client_ip, scope)
+            key = (identity, scope)
             tokens, last = _rate_buckets.get(key, (capacity, now))
             tokens = min(capacity, tokens + max(0.0, now - last) * refill)
             states.append((key, tokens, refill))
@@ -1366,13 +1376,14 @@ def route_post(payload, query, client_ip=None):
     """
     token = payload.get('token') or (query.get('token') or [None])[0]
     action = payload.get('action')
-    retry_after = check_rate_limit(client_ip, action)
-    if retry_after is not None:
-        return {'ok': False, 'rate_limited': True, 'retry_after': retry_after,
-                'error': RATE_LIMIT_ERROR}
     try:
         with LOCK:
             _housekeeping(token)
+            retry_after = check_rate_limit(client_ip, action, token)
+            if retry_after is not None:
+                return {'ok': False, 'rate_limited': True,
+                        'retry_after': retry_after,
+                        'error': RATE_LIMIT_ERROR}
             lobby_res = handle_lobby(action, payload)
             if lobby_res is not None:
                 return lobby_res

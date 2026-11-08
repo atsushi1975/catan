@@ -2,8 +2,9 @@
 """Per-IP rate limiting (Copilot review #3).
 
 The limits are deliberately simple:
-  * join  : 5 requests / minute / IP
-  * action: 120 requests / minute / IP (every POST /action, joins included)
+  * join  : 5 new seats / minute / IP
+  * action: 120 requests / minute (per seat when a valid token is present,
+            otherwise per IP)
 
 The address is used ONLY for rate limiting. Authorization (who may act) never
 depends on it - see tests/test_authz.py.
@@ -33,8 +34,9 @@ app_core._rate_now = lambda: clock[0]
 
 
 def reset():
-    """Forget every bucket (each scenario starts from a full one)."""
+    """Forget every bucket and start from an empty room (full buckets)."""
     app_core._rate_buckets.clear()
+    app_core.reset_room()
 
 
 def post(action, ip, **extra):
@@ -100,6 +102,64 @@ for i in range(115):
 r = post("unknown-probe", ip)
 check(r.get("rate_limited") is True,
       "5 joins + 115 actions fill the 120/min action bucket")
+
+
+# ===========================================================================
+# shared NAT: a seat token gets its own action bucket
+# ===========================================================================
+reset()
+ip = "198.51.100.50"
+a = post("join", ip, name="アリス")
+b = post("join", ip, name="ボブ")
+ta, tb = a.get("token"), b.get("token")
+check(bool(ta and tb), "setup: two players joined from the same IP")
+
+ok = True
+for _ in range(120):
+    if post("unknown-probe", ip, token=ta).get("rate_limited"):
+        ok = False
+        break
+check(ok, "player A can send 120 actions even though the IP is shared")
+
+ok = True
+for _ in range(120):
+    if post("unknown-probe", ip, token=tb).get("rate_limited"):
+        ok = False
+        break
+check(ok, "player B has a separate 120/min bucket on the same IP")
+
+r = post("unknown-probe", ip, token=ta)
+check(r.get("rate_limited") is True, "player A's 121st action is still refused")
+
+# an invalid token must not create a fresh bucket
+reset()
+ip = "198.51.100.60"
+for _ in range(120):
+    post("unknown-probe", ip, token="deadbeefdeadbeef")
+r = post("unknown-probe", ip, token="deadbeefdeadbeef")
+check(r.get("rate_limited") is True,
+      "an invalid token does not get its own bucket (still IP-keyed)")
+
+# ===========================================================================
+# rejoin with the issued token does not spend the new-join budget
+# ===========================================================================
+reset()
+ip = "198.51.100.70"
+r = post("join", ip, name="キャロル")
+tok = r.get("token")
+check(bool(tok), "setup: first join returns a token")
+for i in range(10):
+    r = post("join", ip, token=tok, name="キャロル")
+    check(not r.get("rate_limited"),
+          "rejoin #%d with the existing token is not join-limited" % (i + 1))
+
+# the first join + these four new ones = 5 new seats, so the next one is out
+for i in range(4):
+    r = post("join", ip, name="new%d" % i)
+    check(not r.get("rate_limited"), "new join #%d allowed" % (i + 2))
+r = post("join", ip, name="new6")
+check(r.get("rate_limited") is True,
+      "the 6th NEW join from one IP is refused (rejoins did not count)")
 
 
 # ===========================================================================
