@@ -674,8 +674,19 @@ v27 の後に「ブラウザを完全終了 → 起動」で復帰できない�
   - PC: サイドバー上部（`#sidebar-body` 先頭、ステータス表示の直前）。
   - 10点・旧データ（`victory_target` 無し）は何も表示せず従来どおり。
 
+## バージョン管理
+- バージョンはプロジェクト直下の `VERSION` を正とする。GET `/health` の `version` と
+  `web/client.html` の `VERSION`（診断行・ビルド確認用）は同じ値に揃える。
+- `VERSION` はリポジトリで管理する（旧: Docker ビルド時に「コミット日時-ハッシュ」を自動生成）。
+- **v1〜v58 の修正をまとめた版 = `RELEASE1.0`**。
+- 以降の小さな修正は **`RELEASE1.0-01`, `RELEASE1.0-02`, …**（2桁の連番）。
+- 大きな変更（遊び方や互換性が変わるもの）では RELEASE のサブバージョンを上げる
+  （例: `RELEASE1.1`）。
+- 修正のたびに `VERSION` と `web/client.html` の `VERSION` を同じ値に更新する。
+
 ## バージョン履歴
-- `web/client.html`: `VERSION = 'v58'`（診断行・ビルド確認用）
+- `RELEASE1.0`: v1〜v58 の全修正を含む最初のリリース。
+  `web/client.html`: `VERSION = 'RELEASE1.0'`。
 - `node --check web/game.js` で構文確認済み。
 
 ## CI: テストとデプロイゲート

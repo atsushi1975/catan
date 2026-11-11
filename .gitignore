@@ -15,5 +15,5 @@ venv/
 *.log
 server.log
 
-# Generated at Docker build time / locally - not kept in the repository
-VERSION
+# VERSION is tracked in the repository now (RELEASE1.0 / RELEASE1.0-xx scheme).
+
